@@ -1,6 +1,6 @@
 {
   "name": "jev-tactics",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "可扩展、可恢复、默认静默自动执行的游戏指挥决策框架",

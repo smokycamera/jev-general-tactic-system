@@ -42,6 +42,7 @@ test('zero dialogs: plan, pause, single step, tune, revise and finish', async ({
 test('mobile region map stays within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
+  await expect(page.locator('#manual-action option')).not.toHaveCount(0);
   await page.getByLabel('示例地图').selectOption('regions');
   await page.getByRole('button', { name: '新建战斗', exact: true }).click();
   await expect(page.locator('#map-caption')).toContainText('区域之间');
@@ -50,4 +51,36 @@ test('mobile region map stays within the viewport', async ({ page }) => {
     true,
   );
   await page.screenshot({ path: 'test-results/commander-mobile.png', fullPage: true });
+});
+test('pause remains available while an earlier request is awaiting its response', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('#manual-action option')).not.toHaveCount(0);
+  let entered!: () => void;
+  let release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/step', async (route) => {
+    const response = await route.fetch();
+    entered();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('button', { name: '单步', exact: true }).click();
+  await started;
+  const paused = page.waitForResponse((response) => response.url().endsWith('/pause'), {
+    timeout: 3000,
+  });
+  await page.getByRole('button', { name: '暂停', exact: true }).click();
+  try {
+    expect((await paused).ok()).toBe(true);
+  } finally {
+    release();
+  }
+  await expect(page.locator('#status-text')).toHaveText('已暂停');
 });

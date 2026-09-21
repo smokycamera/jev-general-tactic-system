@@ -144,7 +144,7 @@ export function createService(options: ServiceOptions = {}) {
         commanders: defaultCommanders(),
       });
       send(res, 200, {
-        version: '0.1.0',
+        version: '0.1.1',
         mode: 'silent-auto',
         provider: options.provider?.id ?? 'local',
         profiles: { ...PROFILES, ...options.configuration?.profiles },

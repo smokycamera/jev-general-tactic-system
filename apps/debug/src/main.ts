@@ -24,6 +24,7 @@ let current: View | undefined;
 let selectedCommander = 'blue';
 let sessionId = localStorage.getItem('jev-session') ?? '';
 let busy = false;
+let pendingOperations = 0;
 let token = '';
 const esc = (value: unknown) =>
   String(value ?? '').replace(
@@ -262,19 +263,30 @@ async function refreshActions() {
 }
 async function run(operation: string, data: unknown = {}) {
   if (!sessionId) return;
-  current = await api<View>(`sessions/${sessionId}/${operation}`, data);
+  const requestedSession = sessionId;
+  const result = await api<View>(`sessions/${requestedSession}/${operation}`, data);
+  if (sessionId !== requestedSession) return;
+  if (
+    current?.id === result.id &&
+    current.state.status.savedRevision > result.state.status.savedRevision
+  )
+    return;
+  current = result;
   render();
   await refreshActions();
 }
 function on(id: string, action: () => Promise<void> | void) {
   document.querySelector(`#${id}`)!.addEventListener('click', () => {
-    if (busy) return;
+    const priority = ['pause', 'manual', 'set-goal', 'apply-commander'].includes(id);
+    if (busy && !priority) return;
+    pendingOperations++;
     busy = true;
     Promise.resolve()
       .then(action)
       .catch((e) => note(String(e.message ?? e), true))
       .finally(() => {
-        busy = false;
+        pendingOperations--;
+        busy = pendingOperations > 0;
       });
   });
 }
