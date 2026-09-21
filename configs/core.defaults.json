@@ -1,0 +1,45 @@
+{
+  "$schema": "../schemas/config.schema.json",
+  "version": 1,
+  "policy": {
+    "mode": "silent-auto",
+    "requestTimeoutMs": 10000,
+    "decisionBudgetMs": 30000,
+    "failureThreshold": 3,
+    "cooldownMs": 30000,
+    "retries": 2,
+    "retryDelayMs": 25,
+    "tickDelayMs": 100,
+    "narrativeWindow": 6,
+    "narrativeRoles": ["assistant"],
+    "narrativeMode": "auto"
+  },
+  "commanders": [
+    {
+      "id": "blue",
+      "name": "蓝方指挥官",
+      "side": "blue",
+      "unitIds": ["b1", "b2"],
+      "ability": "skilled",
+      "style": {}
+    },
+    {
+      "id": "blue-wing",
+      "name": "蓝方侧翼队长",
+      "side": "blue",
+      "parentId": "blue",
+      "unitIds": ["b3"],
+      "ability": "regular",
+      "style": { "flank": 75 }
+    },
+    {
+      "id": "red",
+      "name": "红方指挥官",
+      "side": "red",
+      "unitIds": ["r1", "r2", "r3"],
+      "ability": "regular",
+      "style": { "hold": 65, "firepower": 65 }
+    }
+  ],
+  "goals": []
+}

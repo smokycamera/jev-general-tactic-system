@@ -1,0 +1,40 @@
+{
+  "name": "jev-tactics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "可扩展、可恢复、默认静默自动执行的游戏指挥决策框架",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run build -w @jev/core && npm run build -w @jev/demo && npm run build -w @jev/providers && npm run build -w @jev/server && npm run build -w @jev/debug",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build",
+    "dev": "node --env-file-if-exists=.env --import tsx apps/server/src/main.ts",
+    "start": "node --env-file-if-exists=.env apps/server/dist/main.js",
+    "demo": "node --import tsx scripts/demo.ts",
+    "validate": "node --import tsx scripts/validate-config.ts",
+    "release:check": "node scripts/release-check.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@types/node": "^22.18.6",
+    "ajv": "^8.17.1",
+    "prettier": "^3.9.8",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  },
+  "license": "UNLICENSED"
+}

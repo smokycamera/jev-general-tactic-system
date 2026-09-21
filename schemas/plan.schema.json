@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BattlePlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "goals", "tasks", "createdTurn"],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdTurn": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "goals": {
+      "type": "array",
+      "items": {
+        "$ref": "config.schema.json#/definitions/goal"
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "side",
+          "level",
+          "commanderId",
+          "goalId",
+          "doctrineId",
+          "family",
+          "unitIds",
+          "planVersion",
+          "phases",
+          "alternatives",
+          "locked",
+          "resourceCommitment"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "string"
+          },
+          "level": {
+            "enum": ["strategy", "campaign", "tactics"]
+          },
+          "commanderId": {
+            "type": "string"
+          },
+          "goalId": {
+            "type": "string"
+          },
+          "doctrineId": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "unitIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "planVersion": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "title", "intent", "enter", "complete", "abort", "roles"],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "intent": {
+                  "type": "string"
+                },
+                "enter": {
+                  "$ref": "#/definitions/condition"
+                },
+                "complete": {
+                  "$ref": "#/definitions/condition"
+                },
+                "abort": {
+                  "$ref": "#/definitions/condition"
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "region": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "resourceCommitment": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "strengthAtCreation": {
+            "type": "number",
+            "minimum": 0
+          },
+          "configurationKey": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "always",
+            "turns",
+            "enemy-near",
+            "low-strength",
+            "at-target",
+            "no-enemy",
+            "support-ready"
+          ]
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

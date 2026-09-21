@@ -1,0 +1,13 @@
+{
+  "name": "@jev/debug",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@jev/core": "0.1.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1"
+  }
+}

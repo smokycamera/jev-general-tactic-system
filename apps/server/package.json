@@ -1,0 +1,15 @@
+{
+  "name": "@jev/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@jev/core": "0.1.0",
+    "@jev/demo": "0.1.0",
+    "@jev/providers": "0.1.0",
+    "ajv": "^8.17.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

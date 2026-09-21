@@ -1,0 +1,37 @@
+{
+  "$schema": "../schemas/config.schema.json",
+  "version": 1,
+  "policy": {
+    "mode": "silent-auto",
+    "narrativeWindow": 6,
+    "narrativeRoles": ["assistant"],
+    "narrativeMode": "auto",
+    "tickDelayMs": 40
+  },
+  "commanders": [
+    {
+      "id": "enemy-command",
+      "name": "对方指挥官",
+      "side": "enemy",
+      "unitIds": ["replace-with-real-host-unit-id"],
+      "ability": "skilled",
+      "style": {
+        "flank": 65,
+        "firepower": 50,
+        "reserve": 40,
+        "focus": 65,
+        "concentration": 60,
+        "hold": 45,
+        "feint": 40,
+        "initiative": 65,
+        "risk": 45,
+        "preservation": 65,
+        "mobility": 60,
+        "recon": 55,
+        "patience": 55,
+        "autonomy": 50
+      }
+    }
+  ],
+  "goals": []
+}
