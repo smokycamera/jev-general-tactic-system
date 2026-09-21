@@ -18,7 +18,7 @@ export class JevProvider implements DecisionProvider {
     const questions: Questions = {};
     for (let i = 0; i < request.candidates.length; i++) {
       questions[`benefit_${i}`] = score(
-        `仅根据可见游戏状态，候选 candidates[${i}] 对 commander 的当前游戏任务有多大直接帮助？`,
+        `仅根据已知游戏状态，候选 candidates[${i}] 对其自带 goal（没有时使用请求 goal）的游戏任务有多大帮助？候选可以是包含前置步骤的整段计划。`,
         ['无帮助或妨碍', '小幅帮助', '明显推进', '直接达成目标'],
       );
       questions[`risk_${i}`] = noul(
@@ -31,6 +31,7 @@ export class JevProvider implements DecisionProvider {
           purpose: request.purpose,
           observation: request.observation,
           commander: request.commander,
+          goal: request.goal,
           candidates: request.candidates,
         }),
         questions,

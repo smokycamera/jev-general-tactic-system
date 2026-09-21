@@ -94,6 +94,17 @@ export function createObservation(kind = 'grid', sessionId = `demo-${kind}`): Ob
   ];
   return {
     sessionId,
+    capabilities: {
+      mechanisms: {
+        movement: true,
+        'ranged-fire': true,
+        ammo: true,
+        terrain: true,
+        flanking: true,
+        recon: true,
+      },
+      fullyObservable: true,
+    },
     version: 0,
     turn: 1,
     activeSide: 'blue',

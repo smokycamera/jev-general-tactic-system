@@ -14,11 +14,25 @@ import type {
   TaskProgress,
 } from './types.js';
 import { assert, clamp, clone, distance, stable } from './util.js';
-export function assess(o: Observation, side: string): Assessment {
+export function assess(o: Observation, side: string, unitIds?: string[]): Assessment {
+  const own = o.units.filter(
+    (u) => u.side === side && u.hp > 0 && (!unitIds || unitIds.includes(u.id)),
+  );
+  const nearby = (u: Observation['units'][number]) =>
+    !unitIds ||
+    own.some((a) => distance(o.map, a.location, u.location) <= Math.max(a.range, u.range) + 3);
   const strength = (friendly: boolean) =>
     o.units
-      .filter((u) => (u.side === side) === friendly && u.hp > 0 && u.side !== 'neutral')
-      .reduce((s, u) => s + (u.hp / u.maxHp) * u.attack, 0);
+      .filter(
+        (u) => (u.side === side) === friendly && u.hp > 0 && u.side !== 'neutral' && nearby(u),
+      )
+      .reduce(
+        (s, u) =>
+          s +
+          (((u.hp / u.maxHp) * u.attack) / Math.max(1, u.attackInterval ?? 1)) *
+            (o.capabilities?.mechanisms?.ammo && u.range > 1 && u.ammo <= 0 ? 0 : 1),
+        0,
+      );
   const friendlyStrength = strength(true),
     enemyStrength = strength(false);
   return {
@@ -51,7 +65,7 @@ export function conditionMet(
           (condition.value ?? 0.3)
       );
     case 'no-enemy':
-      return enemies.length === 0;
+      return o.ended || (o.capabilities?.fullyObservable === true && enemies.length === 0);
     case 'at-target':
       return !!goal.target && units.some((u) => u.location === goal.target);
     case 'enemy-near':
@@ -59,7 +73,9 @@ export function conditionMet(
         enemies.some((e) => distance(o.map, u.location, e.location) <= (condition.value ?? 2)),
       );
     case 'support-ready':
-      return units.some((u) => u.range > 1 && u.ap > 0 && u.ammo > 0);
+      return units.some(
+        (u) => u.range > 1 && u.ap > 0 && (!o.capabilities?.mechanisms?.ammo || u.ammo > 0),
+      );
   }
 }
 export function advanceProgress(
@@ -71,6 +87,10 @@ export function advanceProgress(
   for (const task of plan.tasks) {
     const p = result[task.id];
     if (!p || p.status !== 'active') continue;
+    if (task.network) {
+      if (o.ended) p.status = 'completed';
+      continue;
+    }
     const goal = plan.goals.find((g) => g.id === task.goalId && g.side === task.side);
     if (!goal) continue;
     const phase = task.phases[p.phase];
@@ -164,6 +184,17 @@ export const defaultAllocator: Allocator = {
       const task = plan.tasks.find((t) => t.commanderId === commander.id && t.level === 'tactics');
       if (!task) continue;
       const profile = profiles[commander.ability]!;
+      if (task.network) {
+        for (const unitId of task.unitIds) {
+          const step = task.network.steps.find(
+            (s) =>
+              s.unitIds.includes(unitId) &&
+              progress[task.id]?.execution?.steps[s.id]?.status === 'running',
+          );
+          result.push({ unitId, taskId: task.id, role: step?.task ?? 'waiting', committed: true });
+        }
+        continue;
+      }
       const phase = task.phases[progress[task.id]?.phase ?? 0];
       const units = o.units
         .filter((u) => commander.unitIds.includes(u.id) && u.side === commander.side && u.hp > 0)
@@ -217,7 +248,7 @@ export function evaluationContext(
     commander: c,
     profile: p,
     goal: goalFor(c, goals),
-    assessment: assess(o, c.side),
+    assessment: assess(o, c.side, c.unitIds),
   };
 }
 export function taskFromMethod(

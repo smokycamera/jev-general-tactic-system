@@ -53,6 +53,25 @@
               "minimum": 0,
               "maximum": 100
             }
+          },
+          "tactics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "doctrineId": {
+                "type": "string"
+              },
+              "modifiers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "parameters": {
+                "type": "object"
+              }
+            }
           }
         }
       }
@@ -118,6 +137,14 @@
         },
         "narrativeMode": {
           "enum": ["auto", "manual", "off"]
+        },
+        "maxModelCallsPerDecision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "modelActionMode": {
+          "enum": ["local", "model"]
         }
       }
     },
@@ -209,6 +236,20 @@
           }
         }
       }
+    },
+    "executionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxIdleTurns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRepairs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "definitions": {
@@ -227,7 +268,8 @@
           "maxLength": 2000
         },
         "kind": {
-          "enum": ["eliminate", "capture", "defend", "withdraw", "recon"]
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$"
         },
         "priority": {
           "type": "number",

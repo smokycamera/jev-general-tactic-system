@@ -1,3 +1,11 @@
+import type {
+  HostCapabilities,
+  ResolvedCapabilities,
+  TaskNetwork,
+  ExecutionProgress,
+  TaskSpec,
+  TacticalPreferences,
+} from './execution-types.js';
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Ability = 'novice' | 'regular' | 'skilled' | 'expert' | 'master' | (string & {});
 export type Side = string;
@@ -10,6 +18,7 @@ export interface Commander {
   unitIds: string[];
   ability: Ability;
   style: Style;
+  tactics?: TacticalPreferences;
 }
 export interface Unit {
   id: string;
@@ -23,6 +32,8 @@ export interface Unit {
   ap: number;
   ammo: number;
   tags: string[];
+  speed?: number;
+  attackInterval?: number;
 }
 export interface Location {
   id: string;
@@ -48,17 +59,20 @@ export interface Observation {
   events: HostEvent[];
   ended: boolean;
   winner?: Side;
+  capabilities?: HostCapabilities;
+  /** Durable order keys. Required only for commands acknowledged before completion. */
+  orders?: Record<string, 'running' | 'succeeded' | 'failed'>;
 }
 export interface HostEvent {
   id: string;
-  kind: 'start' | 'turn' | 'loss' | 'blocked' | 'goal' | 'manual' | 'observation';
+  kind: 'start' | 'turn' | 'loss' | 'blocked' | 'goal' | 'manual' | 'observation' | (string & {});
   unitIds?: string[];
   location?: string;
 }
 export interface Goal {
   id: string;
   title: string;
-  kind: 'eliminate' | 'capture' | 'defend' | 'withdraw' | 'recon';
+  kind: 'eliminate' | 'capture' | 'defend' | 'withdraw' | 'recon' | (string & {});
   priority: number;
   source: 'user' | 'host' | 'narrative' | 'default';
   version: number;
@@ -84,6 +98,8 @@ export interface ActionEnvelope {
   planVersion: number;
   key: string;
   action: BattleAction;
+  taskId?: string;
+  stepId?: string;
 }
 export interface ActionReceipt {
   key: string;
@@ -91,6 +107,7 @@ export interface ActionReceipt {
   stateVersion: number;
   applied: boolean;
   detail: string;
+  execution?: 'running' | 'succeeded' | 'failed';
 }
 /** Host must atomically recheck state and deduplicate durable keys with the action. */
 export interface BattleAdapter {
@@ -144,6 +161,11 @@ export interface Task {
   resourceCommitment: number;
   strengthAtCreation?: number;
   configurationKey?: string;
+  network?: TaskNetwork;
+  parameters?: Record<string, Json>;
+  modifiers?: string[];
+  capabilityKey?: string;
+  failedDoctrines?: string[];
 }
 export interface TaskProgress {
   taskId: string;
@@ -151,6 +173,7 @@ export interface TaskProgress {
   phase: number;
   enteredTurn: number;
   actions: number;
+  execution?: ExecutionProgress;
 }
 export interface BattlePlan {
   id: string;
@@ -202,6 +225,11 @@ export interface Candidate {
   style: number;
   total: number;
   action?: BattleAction;
+  taskId?: string;
+  stepId?: string;
+  summary?: string;
+  commanderId?: string;
+  goal?: Goal;
 }
 export interface DecisionRequest {
   id: string;
@@ -209,6 +237,7 @@ export interface DecisionRequest {
   stateVersion: number;
   planVersion: number;
   purpose: 'family' | 'doctrine' | 'action';
+  goal?: Goal;
   observation: Observation;
   commander: Commander;
   candidates: Candidate[];
@@ -235,6 +264,7 @@ export interface EvaluationContext {
   task?: Task;
   assignment?: RoleAssignment;
   assessment: Assessment;
+  capabilities?: ResolvedCapabilities;
 }
 export interface Evaluator {
   id: string;
@@ -264,6 +294,11 @@ export interface TaskMethod {
   score(context: EvaluationContext): number;
   phases(context: EvaluationContext): Phase[];
   actionBias(action: BattleAction, context: EvaluationContext): number;
+  categoryId?: string;
+  requirements?: string[];
+  modifiers?: string[];
+  parameters?: Record<string, Json>;
+  decompose?(context: EvaluationContext): TaskSpec[];
 }
 export interface Allocator {
   allocate(
@@ -308,6 +343,8 @@ export interface RuntimePolicy {
   narrativeWindow: number;
   narrativeRoles: string[];
   narrativeMode: 'auto' | 'manual' | 'off';
+  maxModelCallsPerDecision: number;
+  modelActionMode: 'local' | 'model';
 }
 export interface Status {
   state: 'idle' | 'running' | 'paused' | 'waiting' | 'degraded' | 'stopped' | 'ended';
@@ -347,6 +384,7 @@ export interface Checkpoint {
   seenEvents: string[];
   paused: boolean;
   narrativeKey?: string;
+  activeOrders?: { key: string; unitId: string }[];
 }
 export interface PlanStore {
   load(sessionId: string): Promise<Checkpoint | null>;

@@ -1,4 +1,20 @@
 import type {
+  CapabilityResolver,
+  ExecutionPolicy,
+  HtnMethod,
+  TaskNetwork,
+  TaskOperator,
+  TaskPlanner,
+  TaskExecutor,
+  TacticalModifier,
+  TacticCategory,
+} from './execution-types.js';
+import { defaultCapabilityResolver, supports, isAction } from './capabilities.js';
+import { HtnPlanner, orderedTasks } from './htn.js';
+import { defaultOperators, defaultHtnMethods } from './operators.js';
+import { NetworkExecutor, recordExecution, syncExecutionOrders, STEP_LABELS } from './execution.js';
+import { defaultCategories, defaultModifiers } from './tactics.js';
+import type {
   Allocator,
   BattleAdapter,
   BattlePlan,
@@ -75,6 +91,8 @@ export const DEFAULT_POLICY: RuntimePolicy = {
   narrativeWindow: 6,
   narrativeRoles: ['assistant'],
   narrativeMode: 'auto',
+  maxModelCallsPerDecision: 2,
+  modelActionMode: 'local',
 };
 const metrics = (): Metrics => ({
   decisions: 0,
@@ -92,6 +110,14 @@ const metrics = (): Metrics => ({
 });
 export interface RuntimeOptions {
   clock?: { now(): number };
+  capabilityResolver?: CapabilityResolver;
+  categories?: Registry<TacticCategory>;
+  modifiers?: Registry<TacticalModifier>;
+  operators?: Registry<TaskOperator>;
+  methods?: Registry<HtnMethod>;
+  taskPlanner?: TaskPlanner;
+  taskExecutor?: TaskExecutor;
+  executionPolicy?: Partial<ExecutionPolicy>;
   adapter: BattleAdapter;
   store: PlanStore;
   commanders: Commander[];
@@ -117,6 +143,15 @@ export class CommandRuntime {
     return this.options.clock?.now() ?? Date.now();
   }
   readonly doctrines: DoctrineRegistry;
+  readonly categories: Registry<TacticCategory>;
+  readonly modifiers: Registry<TacticalModifier>;
+  readonly operators: Registry<TaskOperator>;
+  readonly methods: Registry<HtnMethod>;
+  readonly capabilityResolver: CapabilityResolver;
+  private taskPlanner: TaskPlanner;
+  private taskExecutor: TaskExecutor;
+  private modelCalls = 0;
+  private activeOrders: { key: string; unitId: string }[] = [];
   readonly styles: StyleDimensionRegistry;
   readonly profiles: Record<string, CapabilityProfile>;
   readonly policy: RuntimePolicy;
@@ -154,6 +189,22 @@ export class CommandRuntime {
   lastAssignments: DecisionContext['assignments'] = [];
   constructor(private options: RuntimeOptions) {
     this.doctrines = options.doctrines ?? defaultDoctrines();
+    if (!this.doctrines.has('hold-position'))
+      this.doctrines.register(defaultDoctrines().get('hold-position'));
+    this.categories = options.categories ?? defaultCategories();
+    orderedTasks(
+      this.categories.all().map((category) => ({
+        id: category.id,
+        after: category.parentId ? [category.parentId] : [],
+      })),
+    );
+    this.modifiers = options.modifiers ?? defaultModifiers();
+    this.operators = options.operators ?? defaultOperators();
+    this.methods = options.methods ?? defaultHtnMethods();
+    this.capabilityResolver = options.capabilityResolver ?? defaultCapabilityResolver;
+    this.taskPlanner = options.taskPlanner ?? new HtnPlanner(this.operators, this.methods);
+    this.taskExecutor =
+      options.taskExecutor ?? new NetworkExecutor(this.operators, options.executionPolicy);
     this.styles = options.styles ?? defaultStyles();
     this.profiles = options.profiles ?? PROFILES;
     this.policy = { ...DEFAULT_POLICY, ...options.policy };
@@ -171,6 +222,7 @@ export class CommandRuntime {
       'tickDelayMs',
       'narrativeWindow',
       'retries',
+      'maxModelCallsPerDecision',
     ] as const)
       assert(Number.isInteger(this.policy[key]) && this.policy[key] >= 0, `invalid policy ${key}`);
     assert(
@@ -267,6 +319,7 @@ export class CommandRuntime {
       status: this.statusValue,
       candidates: this.lastCandidates,
       assignments: this.lastAssignments,
+      activeOrders: this.activeOrders,
     });
   }
   private setStatus(state: Status['state'], detail: string) {
@@ -297,6 +350,7 @@ export class CommandRuntime {
         this.seenEvents = new Set(saved.seenEvents);
         this.paused = saved.paused;
         this.narrativeKey = saved.narrativeKey ?? '';
+        this.activeOrders = saved.activeOrders ?? [];
         validateCommanders(this.commanders, this.styles, this.profiles);
       } else {
         this.plan = {
@@ -333,6 +387,7 @@ export class CommandRuntime {
       seenEvents: [...this.seenEvents],
       paused: this.paused,
       narrativeKey: this.narrativeKey,
+      activeOrders: clone(this.activeOrders),
     };
   }
   private async retry<T>(fn: () => Promise<T>): Promise<T> {
@@ -361,7 +416,7 @@ export class CommandRuntime {
     this.revision = cp.revision;
     this.statusValue.savedRevision = this.revision;
   }
-  private async reconcilePending(): Promise<void> {
+  private async reconcilePending(): Promise<boolean | undefined> {
     if (!this.pending) return;
     const envelope = this.pending;
     let receipt = await this.options.adapter.receipt(envelope.key);
@@ -380,17 +435,28 @@ export class CommandRuntime {
     assert(receipt.key === envelope.key, 'receipt key mismatch');
     if (!this.receipts.some((r) => r.key === receipt!.key)) {
       this.receipts.push(receipt);
-      if (receipt.applied) {
-        this.stats.actions++;
-        for (const t of this.plan.tasks)
-          if (t.level === 'tactics' && t.unitIds.includes(envelope.action.unitId)) {
-            const p = this.progress[t.id];
-            if (p) p.actions++;
+      if (receipt.applied && receipt.execution === 'running')
+        this.activeOrders.push({ key: receipt.key, unitId: envelope.action.unitId });
+      if (receipt.applied) this.stats.actions++;
+      for (const t of this.plan.tasks)
+        if (t.level === 'tactics' && t.unitIds.includes(envelope.action.unitId)) {
+          const p = this.progress[t.id];
+          if (p) {
+            if (receipt.applied) p.actions++;
+            const commander = this.commanders.find((c) => c.id === t.commanderId)!;
+            if (envelope.taskId === t.id)
+              recordExecution(
+                p,
+                envelope,
+                receipt,
+                this.context(await this.options.adapter.observe(), commander, this.goals),
+              );
           }
-      }
+        }
     }
     this.pending = null;
     await this.persist();
+    return receipt.applied;
   }
   async step(): Promise<Status> {
     if (!this.initialized) await this.initialize();
@@ -406,9 +472,14 @@ export class CommandRuntime {
     const epoch = this.epoch;
     this.decisionEnd = this.now() + this.policy.decisionBudgetMs;
     this.changes = [];
+    this.modelCalls = 0;
     try {
       await this.reconcilePending();
       const o = await this.options.adapter.observe();
+      for (const progress of Object.values(this.progress)) syncExecutionOrders(progress, o);
+      this.activeOrders = this.activeOrders.filter(
+        (a) => !['succeeded', 'failed'].includes(o.orders?.[a.key] ?? 'running'),
+      );
       assert(o.sessionId === this.plan.id, 'host changed session');
       if (o.ended) {
         this.progress = advanceProgress(this.plan, this.progress, o);
@@ -478,6 +549,8 @@ export class CommandRuntime {
         planVersion: this.plan.version,
         key: `${o.sessionId}:${o.version}:${this.plan.version}:${action.id}`,
         action,
+        ...(context.selected.taskId ? { taskId: context.selected.taskId } : {}),
+        ...(context.selected.stepId ? { stepId: context.selected.stepId } : {}),
       };
       await this.persist();
       if (epoch !== this.epoch || signal.aborted) {
@@ -485,11 +558,17 @@ export class CommandRuntime {
         await this.persist();
         return this.status;
       }
-      await this.reconcilePending();
+      const applied = await this.reconcilePending();
       const after = await this.options.adapter.observe();
       this.setStatus(
-        after.ended ? 'ended' : this.failures ? 'degraded' : 'idle',
-        after.ended ? '战斗结束' : this.failures ? '使用本地规则继续' : '行动已结算并保存',
+        after.ended ? 'ended' : applied === false ? 'waiting' : this.failures ? 'degraded' : 'idle',
+        after.ended
+          ? '战斗结束'
+          : applied === false
+            ? '宿主拒绝动作，等待战况更新'
+            : this.failures
+              ? '使用本地规则继续'
+              : '行动已结算并保存',
       );
       return this.status;
     } catch (error) {
@@ -576,7 +655,10 @@ export class CommandRuntime {
       if (this.initialized) await this.persist();
     });
   }
-  async updateCommander(id: string, update: Pick<Commander, 'ability' | 'style'>): Promise<void> {
+  async updateCommander(
+    id: string,
+    update: Pick<Commander, 'ability' | 'style'> & Partial<Pick<Commander, 'tactics'>>,
+  ): Promise<void> {
     this.invalidate();
     return this.queue.run(async () => {
       const next = clone(this.commanders);
@@ -597,6 +679,16 @@ export class CommandRuntime {
         const c = this.commanders.find((c) => c.id === t.commanderId);
         assert(c && t.unitIds.every((id) => c.unitIds.includes(id)), 'invalid task ownership');
         assert(t.phases.length > 0, 'missing task phases');
+        if (t.network) {
+          orderedTasks(t.network.steps);
+          for (const step of t.network.steps) {
+            this.operators.get(step.task);
+            assert(
+              step.unitIds.every((id) => t.unitIds.includes(id)),
+              'invalid step ownership',
+            );
+          }
+        }
       }
       const o = await this.options.adapter.observe();
       const next = applyPlanPatch(this.plan, this.progress, patch, o.turn);
@@ -691,7 +783,13 @@ export class CommandRuntime {
   ): Promise<Candidate | undefined> {
     const candidates = request.candidates;
     const local = (this.options.selector ?? defaultSelector).select(candidates);
-    if (!this.options.provider || candidates.length < 2 || this.now() < this.cooldownUntil) {
+    if (
+      !this.options.provider ||
+      candidates.length < 2 ||
+      this.now() < this.cooldownUntil ||
+      this.modelCalls >= this.policy.maxModelCallsPerDecision ||
+      (request.purpose === 'action' && this.policy.modelActionMode === 'local')
+    ) {
       this.statusValue.provider = 'local';
       return local;
     }
@@ -701,6 +799,7 @@ export class CommandRuntime {
       return local;
     }
     try {
+      this.modelCalls++;
       const answer = await deadline(
         (s) => this.options.provider!.evaluate(clone(request), s),
         Math.min(remaining, this.policy.requestTimeoutMs),
@@ -746,22 +845,69 @@ export class CommandRuntime {
         `invalid score: ${c.id}`,
       );
   }
+  private context(
+    o: Observation,
+    commander: Commander,
+    goals: Goal[],
+  ): import('./types.js').EvaluationContext & {
+    capabilities: import('./execution-types.js').ResolvedCapabilities;
+  } {
+    return {
+      ...evaluationContext(o, commander, this.profiles[commander.ability]!, goals),
+      capabilities: this.capabilityResolver.resolve(o),
+    };
+  }
+  private compile(
+    method: import('./types.js').TaskMethod,
+    context: import('./types.js').EvaluationContext,
+  ) {
+    if (!method.decompose) return { network: undefined, modifiers: [] as string[] };
+    const capabilities =
+      context.capabilities ?? this.capabilityResolver.resolve(context.observation);
+    const budget = 32 + context.profile.horizon * 32;
+    let specs = method.decompose(context);
+    let network = this.taskPlanner.plan(specs, context, capabilities, budget);
+    if (!network) return undefined;
+    const active: string[] = [],
+      notes: string[] = [];
+    for (const id of new Set([
+      ...(method.modifiers ?? []),
+      ...(context.commander.tactics?.modifiers ?? []),
+    ])) {
+      if (!this.modifiers.has(id)) {
+        notes.push(id + '：模块未注册，已略过');
+        continue;
+      }
+      const modifier = this.modifiers.get(id);
+      if (
+        !supports(capabilities, modifier.requirements) ||
+        !(modifier.compatible?.(context) ?? true)
+      ) {
+        notes.push(modifier.label + '：当前机制或兵力不支持，已略过');
+        continue;
+      }
+      const changed = modifier.apply(clone(specs), context);
+      const result = this.taskPlanner.plan(changed, context, capabilities, budget);
+      if (!result) {
+        notes.push(modifier.label + '：无法构成可执行任务，已略过');
+        continue;
+      }
+      specs = changed;
+      network = result;
+      active.push(id);
+    }
+    network.notes.push(...notes);
+    return { network, modifiers: active };
+  }
   private async planDecision(c: DecisionContext): Promise<void> {
     c.progress = advanceProgress(c.plan, c.progress, c.observation);
-    const changedGoals = stable(c.goals) !== stable(c.plan.goals);
     const freshEvents = c.observation.events.filter((e) => !this.seenEvents.has(e.id));
-    const replacements: Task[] = [];
-    const scope: string[] = [];
+    const replacements: Task[] = [],
+      scope: string[] = [];
     for (const commander of c.commanders) {
-      const context = evaluationContext(
-        c.observation,
-        commander,
-        this.profiles[commander.ability]!,
-        c.goals,
-      );
+      const context = this.context(c.observation, commander, c.goals);
       const old = c.plan.tasks.find((t) => t.level === 'tactics' && t.commanderId === commander.id);
       const progress = old ? c.progress[old.id] : undefined;
-      const phase = old?.phases[progress?.phase ?? 0];
       const strength = c.observation.units
         .filter((u) => commander.unitIds.includes(u.id))
         .reduce((s, u) => s + u.hp, 0);
@@ -769,92 +915,151 @@ export class CommandRuntime {
         if (progress) progress.status = 'completed';
         continue;
       }
+      let failed = false;
+      if (old?.network && progress) {
+        const before = progress.execution?.revision ?? 0;
+        this.taskExecutor.update(
+          old,
+          progress,
+          context,
+          freshEvents.map((e) => e.id),
+        );
+        failed = Object.values(progress.execution?.steps ?? {}).some((p) => p.status === 'failed');
+        if ((progress.execution?.revision ?? 0) !== before) {
+          const from = c.plan.version++;
+          this.changes.push({
+            from,
+            to: c.plan.version,
+            source: 'ai',
+            reason: '修复受阻子任务，保留其他分支',
+            events: freshEvents.map((e) => e.id),
+            scope: [commander.id],
+            cancelled: [],
+            added: [],
+          });
+        }
+      }
+      const phase = old?.phases[progress?.phase ?? 0];
       const failure =
-        old &&
-        phase &&
-        progress &&
-        strength < (old.strengthAtCreation ?? Infinity) * 0.75 &&
-        conditionMet(phase.abort, c.observation, old, progress, context.goal);
+        failed ||
+        !!(
+          old &&
+          !old.network &&
+          phase &&
+          progress &&
+          strength < (old.strengthAtCreation ?? Infinity) * 0.75 &&
+          conditionMet(phase.abort, c.observation, old, progress, context.goal)
+        );
       const affected = freshEvents.some(
         (e) =>
-          ['loss', 'blocked', 'goal'].includes(e.kind) &&
+          ['loss', 'goal', ...(!old?.network ? ['blocked'] : [])].includes(e.kind) &&
           (!e.unitIds?.length || e.unitIds.some((id) => commander.unitIds.includes(id))),
       );
-      const changedCommander =
-        old?.configurationKey !==
-        stable({ ability: commander.ability, style: commander.style, profile: context.profile });
-      const changedSideGoals =
-        stable(c.goals.filter((goal) => goal.side === commander.side)) !==
-        stable(c.plan.goals.filter((goal) => goal.side === commander.side));
-      if (old?.locked || (old && !changedSideGoals && !affected && !failure && !changedCommander))
-        continue;
-      const methods = this.doctrines.all().filter((m) => m.applicable(context));
-      assert(methods.length > 0, 'no applicable doctrine');
-      const methodCandidates = methods.map((m) => {
-        const utility =
-          m.score(context) +
-          (context.goal.kind === 'withdraw' && m.family !== 'withdraw'
-            ? -8
-            : context.goal.kind === 'defend' && m.family === 'attack'
-              ? -3
-              : 0);
-        const style = this.styles.score(m.features, commander.style);
-        return {
-          id: m.id,
-          label: m.label,
-          features: m.features,
-          utility,
-          risk: 0,
-          continuity: m.id === old?.doctrineId && !failure ? 1 : 0,
-          style,
-          total: utility + style + (m.id === old?.doctrineId && !failure ? 1 : 0),
-        };
+      const configurationKey = stable({
+        ability: commander.ability,
+        style: commander.style,
+        profile: context.profile,
+        tactics: commander.tactics ?? {},
       });
-      const families = [...new Set(methods.map((m) => m.family))]
-        .map((family) => {
-          const top = methodCandidates
-            .filter((m) => this.doctrines.get(m.id).family === family)
-            .sort((a, b) => b.total - a.total)[0]!;
-          return { ...top, id: family, label: family };
-        })
-        .sort((a, b) => b.total - a.total)
-        .slice(0, context.profile.candidateLimit);
-      const base = {
-        sessionId: c.observation.sessionId,
-        stateVersion: c.observation.version,
-        planVersion: c.plan.version,
-        observation: c.observation,
-        commander,
-      };
-      const family = await this.choose(
-        {
-          ...base,
-          id: `${c.observation.version}:${commander.id}:family`,
-          purpose: 'family',
-          candidates: families,
-        },
-        c.signal,
-      );
-      const choices = methodCandidates
-        .filter((m) => this.doctrines.get(m.id).family === (family?.id ?? families[0]!.id))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, context.profile.candidateLimit);
-      let picked = await this.choose(
-        {
-          ...base,
-          id: `${c.observation.version}:${commander.id}:doctrine`,
-          purpose: 'doctrine',
-          candidates: choices,
-        },
-        c.signal,
-      );
-      if (failure && old?.alternatives.length) {
-        const alternative = choices.find((m) => old.alternatives.includes(m.id));
-        if (alternative) picked = alternative;
+      const capabilityKey = stable(context.capabilities);
+      const changedGoals =
+        stable(c.goals.filter((g) => g.side === commander.side)) !==
+        stable(c.plan.goals.filter((g) => g.side === commander.side));
+      const migrate = !!old && !old.network && !!this.doctrines.get(old.doctrineId).decompose;
+      if (
+        old?.locked ||
+        (old &&
+          !changedGoals &&
+          !affected &&
+          !failure &&
+          !migrate &&
+          old.configurationKey === configurationKey &&
+          old.capabilityKey === capabilityKey)
+      )
+        continue;
+      const failedDoctrines =
+        changedGoals ||
+        old?.configurationKey !== configurationKey ||
+        old?.capabilityKey !== capabilityKey
+          ? []
+          : [...(old?.failedDoctrines ?? []), ...(failed && old ? [old.doctrineId] : [])];
+      const compiled = new Map<string, { network: TaskNetwork | undefined; modifiers: string[] }>();
+      let methods = this.doctrines
+        .all()
+        .filter(
+          (m) =>
+            !failedDoctrines.includes(m.id) &&
+            supports(context.capabilities, m.requirements) &&
+            m.applicable(context),
+        );
+      methods = methods.filter((m) => {
+        const result = this.compile(m, context);
+        if (!result) return false;
+        compiled.set(m.id, result);
+        return true;
+      });
+      if (!methods.length) {
+        // Legacy/basic hosts can always use their remaining legal commands, without inventing mechanics.
+        const fallback = this.doctrines.get('hold-position');
+        methods = [fallback];
+        compiled.set(fallback.id, { network: undefined, modifiers: [] });
       }
-      const method = this.doctrines.get(picked!.id);
+      const methodCandidates: Candidate[] = methods
+        .map((m) => {
+          const preference = commander.tactics?.doctrineId === m.id ? 100 : 0;
+          const utility =
+            m.score(context) +
+            preference +
+            (context.goal.kind === 'withdraw' && m.family !== 'withdraw'
+              ? -8
+              : context.goal.kind === 'defend' && m.family === 'attack'
+                ? -2
+                : 0);
+          const style = this.styles.score(m.features, commander.style);
+          return {
+            id: m.id,
+            label: m.label,
+            commanderId: commander.id,
+            goal: context.goal,
+            features: m.features,
+            utility,
+            risk: 0,
+            continuity: old?.doctrineId === m.id ? 0.3 : 0,
+            style,
+            total: utility + style,
+            summary:
+              compiled
+                .get(m.id)
+                ?.network?.steps.map(
+                  (s) => (STEP_LABELS[s.task] ?? s.task) + '[' + s.unitIds.join(',') + ']',
+                )
+                .join(' → ') ?? m.label,
+          };
+        })
+        .sort((a, b) => b.total - a.total || a.id.localeCompare(b.id));
+      const choices = methodCandidates.slice(0, context.profile.candidateLimit);
+      // The catalogue hierarchy is local metadata; it does not add sequential model requests.
+      const picked =
+        commander.side === c.observation.activeSide
+          ? await this.choose(
+              {
+                id: c.observation.version + ':' + commander.id + ':doctrine',
+                sessionId: c.observation.sessionId,
+                stateVersion: c.observation.version,
+                planVersion: c.plan.version,
+                purpose: 'doctrine',
+                goal: context.goal,
+                observation: c.observation,
+                commander,
+                candidates: choices,
+              },
+              c.signal,
+            )
+          : (this.options.selector ?? defaultSelector).select(choices);
+      const method = this.doctrines.get(picked!.id),
+        compiledPlan = compiled.get(method.id)!;
       const task = taskFromMethod(
-        `${commander.id}-v${c.plan.version + 1}`,
+        commander.id + '-v' + (c.plan.version + 1),
         commander,
         context.goal,
         c.plan.version + 1,
@@ -862,13 +1067,31 @@ export class CommandRuntime {
         context,
         methodCandidates
           .filter((m) => m.id !== method.id)
-          .sort((a, b) => b.total - a.total)
           .slice(0, context.profile.branches)
           .map((m) => m.id),
       );
+      task.configurationKey = configurationKey;
+      task.capabilityKey = capabilityKey;
+      task.failedDoctrines = [...new Set(failedDoctrines)];
+      task.parameters = { ...method.parameters, ...commander.tactics?.parameters };
+      task.modifiers = compiledPlan.modifiers;
+      if (compiledPlan.network) {
+        task.network = compiledPlan.network;
+        if (commander.tactics?.doctrineId && method.id !== commander.tactics.doctrineId)
+          task.network.notes.push('指定战法当前不可行，自动选择：' + method.label);
+        task.phases = task.network.steps.map((s) => ({
+          id: s.id,
+          title: STEP_LABELS[s.task] ?? s.task,
+          intent: s.task,
+          enter: { kind: 'always' },
+          complete: { kind: 'at-target' },
+          abort: { kind: 'low-strength', value: 0.2 },
+          roles: ['assault', 'support', 'reserve'],
+        }));
+      }
       replacements.push(task);
       scope.push(commander.id);
-      this.stats.maxHorizon = Math.max(this.stats.maxHorizon, task.phases.length);
+      this.stats.maxHorizon = Math.max(this.stats.maxHorizon, context.profile.horizon);
       this.stats.lastBranches = task.alternatives.length;
     }
     if (replacements.length) {
@@ -877,13 +1100,8 @@ export class CommandRuntime {
         c.progress,
         {
           baseVersion: c.plan.version,
-          source: changedGoals ? 'host' : 'ai',
-          reason:
-            c.plan.version === 0
-              ? '生成总计划'
-              : changedGoals
-                ? '目标更新'
-                : '局部态势变化，修复受影响任务',
+          source: 'ai',
+          reason: c.plan.version === 0 ? '生成可执行任务计划' : '按当前条件修订受影响任务',
           events: freshEvents.map((e) => e.id),
           scope,
           replaceTasks: replacements,
@@ -895,37 +1113,45 @@ export class CommandRuntime {
       this.changes.push(result.revision);
     }
     c.plan.goals = clone(c.goals);
-    if (!c.plan.tasks.some((t) => t.level === 'strategy')) {
-      const template = c.plan.tasks.find((t) => t.level === 'tactics')!;
-      for (const side of new Set(c.commanders.map((cmd) => cmd.side))) {
-        const root = c.commanders.find((cmd) => cmd.side === side && !cmd.parentId)!;
-        const strategy: Task = {
-          ...clone(template),
-          id: `strategy-${side}`,
-          side,
-          level: 'strategy',
-          commanderId: root.id,
-          goalId: goalFor(root, c.goals).id,
-          unitIds: [],
-          phases: [],
-          alternatives: [],
-        };
-        delete strategy.parentId;
-        c.plan.tasks.unshift(strategy);
-      }
-      for (const cmd of c.commanders)
-        c.plan.tasks.push({
-          ...clone(template),
-          id: `campaign-${cmd.id}`,
-          side: cmd.side,
-          parentId: cmd.parentId ? `campaign-${cmd.parentId}` : `strategy-${cmd.side}`,
-          level: 'campaign',
-          commanderId: cmd.id,
-          goalId: goalFor(cmd, c.goals).id,
-          unitIds: [],
-          phases: [],
-          alternatives: [],
-        });
+    for (const commander of c.commanders) {
+      const goal = goalFor(commander, c.goals);
+      const parent = (id: string, level: Task['level'], parentId?: string): Task => ({
+        id,
+        side: commander.side,
+        level,
+        commanderId: commander.id,
+        goalId: goal.id,
+        doctrineId: 'hold-position',
+        family: 'command',
+        unitIds: [],
+        planVersion: c.plan.version,
+        phases: [],
+        alternatives: [],
+        locked: false,
+        resourceCommitment: 0,
+        ...(parentId ? { parentId } : {}),
+      });
+      const root = 'strategy-' + commander.side;
+      if (!c.plan.tasks.some((t) => t.id === root)) c.plan.tasks.unshift(parent(root, 'strategy'));
+      const campaign = 'campaign-' + commander.id;
+      if (!c.plan.tasks.some((t) => t.id === campaign))
+        c.plan.tasks.push(
+          parent(
+            campaign,
+            'campaign',
+            commander.parentId ? 'campaign-' + commander.parentId : root,
+          ),
+        );
+      const task = c.plan.tasks.find(
+        (t) => t.level === 'tactics' && t.commanderId === commander.id,
+      );
+      if (task?.network)
+        this.taskExecutor.update(
+          task,
+          c.progress[task.id]!,
+          this.context(c.observation, commander, c.goals),
+          [],
+        );
     }
   }
   private async makeCandidates(c: DecisionContext): Promise<void> {
@@ -933,34 +1159,87 @@ export class CommandRuntime {
       .filter((cmd) => cmd.side === c.observation.activeSide)
       .flatMap((cmd) => cmd.unitIds);
     const raw = await this.options.adapter.legalActions(c.observation, authorized);
-    const legal = (this.options.coordinator ?? defaultCoordinator).filter(raw, c);
+    const rejected = new Set(
+      this.receipts
+        .filter((r) => !r.applied && r.stateVersion === c.observation.version)
+        .map((r) => r.actionId),
+    );
+    const legal = (this.options.coordinator ?? defaultCoordinator)
+      .filter(raw, c)
+      .filter((a) => !rejected.has(a.id));
+    const awaiting = new Set(
+      Object.values(c.progress).flatMap((p) =>
+        Object.values(p.execution?.steps ?? {}).flatMap((s) => s.awaiting.map((a) => a.unitId)),
+      ),
+    );
+    this.activeOrders.forEach((a) => awaiting.add(a.unitId));
+    const leases = new Map<string, string>();
+    for (const task of c.plan.tasks.filter((t) => t.side === c.observation.activeSide)) {
+      for (const step of task.network?.steps ?? []) {
+        if (c.progress[task.id]?.execution?.steps[step.id]?.status !== 'running') continue;
+        const owner = task.id + '/' + step.id;
+        const claims = [...step.unitIds.map((id) => 'unit:' + id), ...(step.resources ?? [])];
+        if (claims.some((key) => leases.has(key))) continue;
+        claims.forEach((key) => leases.set(key, owner));
+      }
+    }
     c.candidates = [];
     for (const commander of c.commanders.filter((cmd) => cmd.side === c.observation.activeSide)) {
-      const context = evaluationContext(
-        c.observation,
-        commander,
-        this.profiles[commander.ability]!,
-        c.goals,
-      );
+      const context = this.context(c.observation, commander, c.goals);
       const task = c.plan.tasks.find(
         (t) => t.level === 'tactics' && t.commanderId === commander.id,
       );
       if (!task) continue;
       context.task = task;
-      const method = this.doctrines.get(task.doctrineId);
-      const scored = legal
-        .filter((a) => commander.unitIds.includes(a.unitId) && task.unitIds.includes(a.unitId))
-        .map((a) => {
-          const assignment = c.assignments.find((r) => r.unitId === a.unitId);
-          return scoreAction(
-            a,
+      const method = this.doctrines.get(task.doctrineId),
+        progress = c.progress[task.id]!;
+      const scored: Candidate[] = [];
+      for (const action of legal.filter(
+        (a) => task.unitIds.includes(a.unitId) && !awaiting.has(a.unitId),
+      )) {
+        const assignment = c.assignments.find((a) => a.unitId === action.unitId);
+        const candidate = {
+          ...scoreAction(
+            action,
             { ...context, ...(assignment ? { assignment } : {}) },
             method,
             this.styles,
             this.options.evaluators ?? [defaultEvaluator],
-          );
-        })
-        .sort((a, b) => b.total - a.total || a.id.localeCompare(b.id));
+          ),
+          commanderId: commander.id,
+          goal: context.goal,
+        };
+        if (!task.network) {
+          scored.push(candidate);
+          continue;
+        }
+        const options = this.taskExecutor
+          .options(action, task, progress, context)
+          .filter((option) => {
+            const step = task.network!.steps.find((s) => s.id === option.stepId)!;
+            return ['unit:' + action.unitId, ...(step.resources ?? [])].every(
+              (key) => leases.get(key) === task.id + '/' + step.id,
+            );
+          })
+          .sort((a, b) => b.score - a.score);
+        const selected = options[0];
+        if (selected)
+          scored.push({
+            ...candidate,
+            taskId: task.id,
+            stepId: selected.stepId,
+            utility: candidate.utility + selected.score,
+            total: candidate.total + selected.score,
+          });
+        else if (
+          isAction(context.capabilities, 'wait', action.kind) ||
+          isAction(context.capabilities, 'defend', action.kind)
+        ) {
+          // A blocked branch may yield its action opportunity, but may not attack ahead of its dependencies.
+          scored.push({ ...candidate, taskId: task.id, total: -100, utility: -100 });
+        }
+      }
+      scored.sort((a, b) => b.total - a.total || a.id.localeCompare(b.id));
       c.candidates.push(...scored.slice(0, context.profile.candidateLimit));
       this.stats.evaluations += scored.length;
       this.stats.lastFactors = context.profile.factors;

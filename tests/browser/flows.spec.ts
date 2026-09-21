@@ -1,4 +1,24 @@
 import { expect, test } from '@playwright/test';
+test('tactical preferences show execution dependencies and missing-mechanic fallback', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await expect(page.locator('#manual-action option')).not.toHaveCount(0);
+  await page.locator('.tactical-settings summary').click();
+  await expect(page.locator('#doctrine optgroup')).toHaveCount(5);
+  await expect(page.locator('#doctrine option')).toHaveCount(33);
+  await page.locator('#doctrine').selectOption('fire-then-assault');
+  await page.getByLabel('烟幕与遮蔽', { exact: true }).check();
+  await page.getByLabel('火力压制', { exact: true }).check();
+  await page.getByRole('button', { name: '应用指挥设置' }).click();
+  await expect(page.locator('#notice')).toHaveText('指挥设置已保存。');
+  await page.getByRole('button', { name: '单步', exact: true }).click();
+  await expect(page.locator('#tasks')).toContainText('火力准备后突击');
+  await expect(page.locator('#tasks')).toContainText('烟幕与遮蔽：当前机制或兵力不支持');
+  await page.locator('#tasks .network summary').first().click();
+  await expect(page.locator('#tasks .network').first()).toContainText('火力准备');
+  await expect(page.locator('#tasks .network').first()).toContainText('交战');
+});
 test('zero dialogs: plan, pause, single step, tune, revise and finish', async ({ page }) => {
   let dialogs = 0;
   const errors: string[] = [];

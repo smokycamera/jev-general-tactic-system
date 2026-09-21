@@ -9,7 +9,7 @@ export function validateGoals(goals: Goal[], observation?: Observation): void {
     );
     assert(typeof goal.title === 'string' && goal.title.length <= 2000, 'invalid goal title');
     assert(
-      ['eliminate', 'capture', 'defend', 'withdraw', 'recon'].includes(goal.kind),
+      typeof goal.kind === 'string' && /^[a-z][a-z0-9_.-]*$/i.test(goal.kind),
       'invalid goal kind',
     );
     assert(Object.hasOwn(priority, goal.source), 'invalid goal source');

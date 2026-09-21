@@ -63,6 +63,9 @@ export function createService(options: ServiceOptions = {}) {
         tickDelayMs: options.tickDelayMs ?? options.configuration?.policy?.tickDelayMs ?? 100,
       },
       profiles: { ...PROFILES, ...options.configuration?.profiles },
+      ...(options.configuration?.executionPolicy
+        ? { executionPolicy: options.configuration.executionPolicy }
+        : {}),
       ...(options.configuration?.workflow ? { workflow: options.configuration.workflow } : {}),
       ...(options.provider ? { provider: options.provider } : {}),
       ...(options.extractor ? { extractor: options.extractor } : {}),
@@ -144,12 +147,25 @@ export function createService(options: ServiceOptions = {}) {
         commanders: defaultCommanders(),
       });
       send(res, 200, {
-        version: '0.1.1',
+        version: '0.2.0',
         mode: 'silent-auto',
         provider: options.provider?.id ?? 'local',
         profiles: { ...PROFILES, ...options.configuration?.profiles },
         styles: runtime.styles.all().map(({ contribution, ...d }) => d),
-        doctrines: runtime.doctrines.all().map(({ id, label, family }) => ({ id, label, family })),
+        doctrines: runtime.doctrines
+          .all()
+          .map(({ id, label, family, categoryId, requirements, parameters }) => ({
+            id,
+            label,
+            family,
+            categoryId,
+            requirements,
+            parameters,
+          })),
+        categories: runtime.categories.all(),
+        modifiers: runtime.modifiers
+          .all()
+          .map(({ id, label, requirements }) => ({ id, label, requirements })),
         defaults: { policy: DEFAULT_POLICY, style: DEFAULT_STYLE },
       });
       return;
@@ -220,6 +236,9 @@ export function createService(options: ServiceOptions = {}) {
           await runtime.updateCommander(input.id, {
             ability: input.ability as Commander['ability'],
             style: input.style as Record<string, number>,
+            ...(input.tactics === undefined
+              ? {}
+              : { tactics: input.tactics as NonNullable<Commander['tactics']> }),
           });
           break;
         case 'lock':

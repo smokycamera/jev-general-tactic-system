@@ -8,7 +8,7 @@
 | `registry.ts`                | 模块注册、能力配置、依赖循环和单位归属检查 |
 | `runtime.ts`                 | 串行调度、取消、决策边界、去重、故障降级   |
 | `planning.ts`                | 总计划、任务进度、修订和单位分工           |
-| `doctrines.ts` / `styles.ts` | 十种战法和十四维风格                       |
+| `doctrines.ts` / `styles.ts` | 战术目录与十四维风格                       |
 | `scoring.ts`                 | 收益、风险、连续性与风格分项评分           |
 | `goals.ts`                   | 目标来源优先级和正文窗口                   |
 | `store.ts`                   | 保存契约与内存实现                         |
@@ -30,3 +30,5 @@
 `TaskMethod` 是战法扩展点，提供适用条件、计划阶段、初步评分与动作偏好。未来阶段保存意图与条件，进入阶段后重新获得宿主合法动作，不预先提交未来行动。
 
 `DecisionProvider` 不持有执行权。它只为已经生成的候选提供分值。运行器结合模型置信度和本地评分选择，最后重新读取宿主版本并复核动作。
+
+任务执行现在由 `htn.ts`、`operators.ts`、`execution.ts` 分工；`tactics.ts` 管理分类、32 个模板和 10 个辅助战法，`capabilities.ts` 处理宿主机制与动作语义。分类、分解、操作与执行算法均可替换。详细契约见 [模块化任务规划](modular-tactics.md)。

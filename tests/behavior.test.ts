@@ -49,7 +49,9 @@ describe('目标、风格与连续性边界', () => {
       (t) => t.commanderId === 'blue' && t.level === 'tactics',
     )!;
     expect(after.id).not.toBe(before.id);
-    expect(after.phases).toHaveLength(6);
+    expect(after.network?.steps.map((s) => s.task)).toContain('engage');
+    expect(after.phases.length).toBe(before.phases.length);
+    expect(runtime.state.metrics.maxHorizon).toBe(6);
   });
   it('flank preference changes the selected doctrine without extra information', async () => {
     const choices: string[] = [];

@@ -1,4 +1,5 @@
 import './style.css';
+import { defaultCapabilityResolver, supports } from '@jev/core';
 import type {
   Ability,
   BattleAction,
@@ -16,7 +17,15 @@ type Meta = {
   provider: string;
   styles: { id: string; label: string; low: string; high: string; effect: string }[];
   profiles: Record<string, { label: string; candidateLimit: number; horizon: number }>;
-  doctrines: { id: string; label: string; family: string }[];
+  doctrines: {
+    id: string;
+    label: string;
+    family: string;
+    categoryId?: string;
+    requirements?: string[];
+  }[];
+  categories: { id: string; label: string; parentId?: string }[];
+  modifiers: { id: string; label: string; requirements?: string[] }[];
 };
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let meta: Meta;
@@ -62,7 +71,52 @@ const labels: Record<string, string> = {
   screen: '警戒',
   cover: '掩护',
   independent: '独立行动',
+  security: '侦察与警戒',
+  exploit: '反击与战果利用',
+  fire: '火力准备',
+  rally: '集结',
+  engage: '交战',
+  smoke: '烟幕',
+  suppress: '压制',
+  conceal: '隐蔽',
+  commit: '预备队投入',
+  pending: '等待前置任务',
+  succeeded: '已完成',
+  failed: '需要改案',
+  skipped: '已略过',
 };
+function tacticControls() {
+  return (
+    '<details class="tactical-settings"><summary>战术与辅助战法</summary><label for="doctrine">战术偏好</label><select id="doctrine"><option value="">自动选择</option>' +
+    meta.categories
+      .filter((c) => !c.parentId)
+      .map(
+        (c) =>
+          '<optgroup label="' +
+          esc(c.label) +
+          '">' +
+          meta.doctrines
+            .filter((d) => d.family === c.id)
+            .map((d) => '<option value="' + esc(d.id) + '">' + esc(d.label) + '</option>')
+            .join('') +
+          '</optgroup>',
+      )
+      .join('') +
+    '</select><label for="direction">侧翼方向</label><select id="direction"><option value="auto">自动选择</option><option value="left">左翼</option><option value="right">右翼</option></select>' +
+    '<p class="muted small">不可用的战法自动换案；缺少机制的辅助环节会略过。</p><div class="modifier-options">' +
+    meta.modifiers
+      .map(
+        (m) =>
+          '<label><input type="checkbox" data-modifier="' +
+          esc(m.id) +
+          '"> ' +
+          esc(m.label) +
+          '</label>',
+      )
+      .join('') +
+    '</div></details>'
+  );
+}
 async function api<T>(path: string, data?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method: data === undefined ? 'GET' : 'POST',
@@ -92,7 +146,7 @@ function shell() {
    .map(([id, p]) => `<option value="${esc(id)}">${esc(p.label)}</option>`)
    .join(
      '',
-   )}</select><p id="ability-description" class="muted"></p></section><div class="row"><h2>个人风格</h2><button id="reset-styles" class="text-button">归中</button></div><p class="muted small">50 为中性。偏好始终服从合法动作与战场条件。</p><div id="sliders">${meta.styles.map((s) => `<div class="slider"><label for="style-${s.id}">${esc(s.label)}<output id="value-${s.id}">50</output></label><input id="style-${s.id}" data-style="${s.id}" type="range" min="0" max="100" step="1" value="50" title="${esc(s.effect)}"><div class="range-labels"><span>${esc(s.low)}</span><span>${esc(s.high)}</span></div></div>`).join('')}</div><button class="primary full" id="apply-commander">应用指挥设置</button><p class="muted small">设置会自动保存，在下一决策边界生效。</p></aside>
+   )}</select><p id="ability-description" class="muted"></p></section><div class="row"><h2>个人风格</h2><button id="reset-styles" class="text-button">归中</button></div><p class="muted small">50 为中性。偏好始终服从合法动作与战场条件。</p><div id="sliders">${meta.styles.map((s) => `<div class="slider"><label for="style-${s.id}">${esc(s.label)}<output id="value-${s.id}">50</output></label><input id="style-${s.id}" data-style="${s.id}" type="range" min="0" max="100" step="1" value="50" title="${esc(s.effect)}"><div class="range-labels"><span>${esc(s.low)}</span><span>${esc(s.high)}</span></div></div>`).join('')}</div>${tacticControls()}<button class="primary full" id="apply-commander">应用指挥设置</button><p class="muted small">设置会自动保存，在下一决策边界生效。</p></aside>
  <main><div class="heading"><div><div class="eyebrow">BATTLE OVERVIEW / 战局</div><h1>让计划持续推进。</h1><p class="subtitle">自动执行、动态改案、可恢复。随时接管。</p></div><div class="status"><i></i><span id="status-text">就绪</span></div></div>
  <div class="toolbar"><select id="map-kind" aria-label="示例地图"><option value="grid">方格战场</option><option value="regions">区域连接图</option></select><button id="new-battle">新建战斗</button><span class="spacer"></span><button id="step">单步</button><button id="pause">暂停</button><button id="start" class="primary">自动运行</button><button id="export">导出</button></div><div id="notice" class="notice" role="status">正常运行无需打开此面板，也无需逐步确认。</div>
  <div class="stats"><div><span>当前回合</span><strong id="turn">—</strong></div><div><span>计划版本</span><strong id="plan-version">—</strong></div><div><span>已结算行动</span><strong id="actions">—</strong></div><div><span>保存检查点</span><strong id="saved">—</strong></div></div>
@@ -115,6 +169,12 @@ function commanderControls() {
   const c = commands.find((c) => c.id === selectedCommander) ?? commands[0]!;
   selectedCommander = c.id;
   document.querySelector<HTMLSelectElement>('#ability')!.value = c.ability;
+  document.querySelector<HTMLSelectElement>('#doctrine')!.value = c.tactics?.doctrineId ?? '';
+  document.querySelector<HTMLSelectElement>('#direction')!.value = String(
+    c.tactics?.parameters?.direction ?? 'auto',
+  );
+  for (const input of document.querySelectorAll<HTMLInputElement>('[data-modifier]'))
+    input.checked = c.tactics?.modifiers?.includes(input.dataset.modifier!) ?? false;
   for (const d of meta.styles) {
     document.querySelector<HTMLInputElement>(`#style-${d.id}`)!.value = String(c.style[d.id] ?? 50);
     document.querySelector(`#value-${d.id}`)!.textContent = String(c.style[d.id] ?? 50);
@@ -125,7 +185,7 @@ function abilityDescription() {
   const id = document.querySelector<HTMLSelectElement>('#ability')!.value;
   const p = meta.profiles[id]!;
   document.querySelector('#ability-description')!.textContent =
-    `每节点最多考虑 ${p.candidateLimit} 个方案，提前细化 ${p.horizon} 个阶段。`;
+    `最多比较 ${p.candidateLimit} 个方案，前瞻预算 ${p.horizon} 档；保留全部必要步骤。`;
 }
 function mapSvg(o: Observation) {
   const cell = 54,
@@ -174,6 +234,13 @@ function mapSvg(o: Observation) {
 function render() {
   if (!current) return;
   const { state: s, observation: o } = current;
+  const capabilities = defaultCapabilityResolver.resolve(o);
+  for (const option of document.querySelectorAll<HTMLOptionElement>('#doctrine option')) {
+    const method = meta.doctrines.find((d) => d.id === option.value);
+    if (method)
+      option.textContent =
+        method.label + (supports(capabilities, method.requirements) ? '' : '（当前机制不支持）');
+  }
   document.querySelector('#status-text')!.textContent = labels[s.status.state] ?? s.status.state;
   document.querySelector('.status')!.setAttribute('data-state', s.status.state);
   document.querySelector('#turn')!.textContent = String(o.turn);
@@ -238,7 +305,7 @@ function taskView(t: Task, s: RuntimeState) {
   const commander = s.commanders.find((c) => c.id === t.commanderId);
   const p = s.progress[t.id];
   const d = meta.doctrines.find((d) => d.id === t.doctrineId);
-  return `<div class="task"><div class="row"><span class="muted small">${esc(commander?.name)}</span><button class="text-button lock" data-task="${esc(t.id)}" data-locked="${t.locked}">${t.locked ? '解锁' : '锁定'}</button></div><h3>${esc(d?.label ?? t.doctrineId)}</h3><div class="phase">${p?.status === 'completed' ? '任务已完成' : esc(t.phases[p?.phase ?? 0]?.title ?? '准备中')}</div><div class="phase-dots">${t.phases.map((_, i) => `<i class="${i <= (p?.phase ?? 0) ? 'active' : ''}"></i>`).join('')}</div><div class="role-tags">${s.assignments
+  return `<div class="task"><div class="row"><span class="muted small">${esc(commander?.name)}</span><button class="text-button lock" data-task="${esc(t.id)}" data-locked="${t.locked}">${t.locked ? '解锁' : '锁定'}</button></div><h3>${esc(d?.label ?? t.doctrineId)}</h3><div class="phase">${p?.status === 'completed' ? '任务已完成' : esc(p?.execution?.state ?? t.phases[p?.phase ?? 0]?.title ?? '准备中')}</div><div class="phase-dots">${t.phases.map((_, i) => `<i class="${i <= (p?.phase ?? 0) ? 'active' : ''}"></i>`).join('')}</div><div class="role-tags">${s.assignments
     .filter((a) => a.taskId === t.id)
     .map(
       (a) =>
@@ -246,7 +313,45 @@ function taskView(t: Task, s: RuntimeState) {
     )
     .join(
       '',
-    )}</div>${t.alternatives.length ? `<small class="muted">预案 ${t.alternatives.length} 项 · 已执行 ${p?.actions ?? 0} 次</small>` : ''}</div>`;
+    )}</div>${networkView(t, s)}${t.alternatives.length ? `<small class="muted">预案 ${t.alternatives.length} 项 · 已执行 ${p?.actions ?? 0} 次</small>` : ''}</div>`;
+}
+function networkView(t: Task, s: RuntimeState) {
+  if (!t.network) return '';
+  const execution = s.progress[t.id]?.execution;
+  return (
+    '<details class="network"><summary>任务依赖与执行状态</summary><ol>' +
+    t.network.steps
+      .map(
+        (step) =>
+          '<li><b>' +
+          esc(labels[step.task] ?? step.task) +
+          '</b> · ' +
+          esc(step.unitIds.join(' / ')) +
+          '<small>' +
+          esc(
+            labels[execution?.steps[step.id]?.status ?? 'pending'] ??
+              execution?.steps[step.id]?.status,
+          ) +
+          (step.target ? ' · 位置 ' + esc(step.target) : '') +
+          (step.after.length
+            ? ' · 等待 ' +
+              esc(
+                step.after
+                  .map((id) => {
+                    const prev = t.network!.steps.find((n) => n.id === id);
+                    return labels[prev?.task ?? ''] ?? prev?.task ?? id;
+                  })
+                  .join('、'),
+              )
+            : '') +
+          '</small></li>',
+      )
+      .join('') +
+    '</ol></details>' +
+    [...t.network.notes, ...(execution?.repairLog ?? []).slice(-2)]
+      .map((note) => '<p class="task-note">' + esc(note) + '</p>')
+      .join('')
+  );
 }
 async function refreshActions() {
   if (!sessionId) return;
@@ -315,6 +420,18 @@ function wire() {
       id: selectedCommander,
       ability: document.querySelector<HTMLSelectElement>('#ability')!.value,
       style,
+      tactics: {
+        ...(document.querySelector<HTMLSelectElement>('#doctrine')!.value
+          ? { doctrineId: document.querySelector<HTMLSelectElement>('#doctrine')!.value }
+          : {}),
+        modifiers: [...document.querySelectorAll<HTMLInputElement>('[data-modifier]:checked')].map(
+          (e) => e.dataset.modifier!,
+        ),
+        parameters: {
+          ...current?.state.commanders.find((c) => c.id === selectedCommander)?.tactics?.parameters,
+          direction: document.querySelector<HTMLSelectElement>('#direction')!.value,
+        },
+      },
     });
     note('指挥设置已保存。');
   });

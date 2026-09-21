@@ -22,3 +22,7 @@
 第一次联调顺序：只读取真实战场 → 本地规则影子决策 → 验证合法动作与回执 → 自动提交单步 → 暂停／手动介入 → 保存和重启 → 再开启连续循环与模型。接入前保留现有战斗状态的独立快照。
 
 `configs/tavern.profile.example.json` 只有字段示例；其中单位 ID 必须替换，不能直接控制真实单位。
+
+## 可选机制与长动作
+
+接入方按自身能力填写 Observation.capabilities；烟幕、压制、士气、补给都不是启动前提。动作名称可映射。长动作需要 execution:running 回执及 Observation.orders 终态，详见 [接口说明](modular-tactics.md)。实际酒馆插件接入仍需在其仓库实现适配。

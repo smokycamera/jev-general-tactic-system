@@ -12,7 +12,9 @@
     "tickDelayMs": 100,
     "narrativeWindow": 6,
     "narrativeRoles": ["assistant"],
-    "narrativeMode": "auto"
+    "narrativeMode": "auto",
+    "maxModelCallsPerDecision": 2,
+    "modelActionMode": "local"
   },
   "commanders": [
     {
@@ -30,7 +32,9 @@
       "parentId": "blue",
       "unitIds": ["b3"],
       "ability": "regular",
-      "style": { "flank": 75 }
+      "style": {
+        "flank": 75
+      }
     },
     {
       "id": "red",
@@ -38,8 +42,15 @@
       "side": "red",
       "unitIds": ["r1", "r2", "r3"],
       "ability": "regular",
-      "style": { "hold": 65, "firepower": 65 }
+      "style": {
+        "hold": 65,
+        "firepower": 65
+      }
     }
   ],
-  "goals": []
+  "goals": [],
+  "executionPolicy": {
+    "maxIdleTurns": 3,
+    "maxRepairs": 2
+  }
 }

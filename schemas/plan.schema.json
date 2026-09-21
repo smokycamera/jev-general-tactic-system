@@ -134,6 +134,27 @@
           },
           "configurationKey": {
             "type": "string"
+          },
+          "network": {
+            "$ref": "#/definitions/network"
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilityKey": {
+            "type": "string"
+          },
+          "failedDoctrines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -158,6 +179,75 @@
         },
         "value": {
           "type": "number"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "methods", "notes", "expanded"],
+      "properties": {
+        "expanded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "task", "unitIds", "after", "effects"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "task": {
+                "type": "string"
+              },
+              "unitIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "after": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "effects": {
+                "type": "object"
+              },
+              "target": {
+                "type": "string"
+              },
+              "data": {
+                "type": "object"
+              },
+              "optional": {
+                "type": "boolean"
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     }

@@ -26,6 +26,14 @@ export class Registry<T extends { id: string }> {
   all(): T[] {
     return [...this.items.values()];
   }
+  has(id: string): boolean {
+    return this.items.has(id);
+  }
+  replace(item: T): this {
+    assert(this.items.has(item.id), 'cannot replace unknown module: ' + item.id);
+    this.items.set(item.id, item);
+    return this;
+  }
 }
 export class DoctrineRegistry extends Registry<TaskMethod> {}
 export class StyleDimensionRegistry extends Registry<StyleDimension> {
@@ -162,6 +170,29 @@ export function validateCommanders(
     ids.add(c.id);
     assert(profiles[c.ability], 'unknown ability');
     styles.validate(c.style);
+    if (c.tactics !== undefined) {
+      assert(
+        c.tactics && typeof c.tactics === 'object' && !Array.isArray(c.tactics),
+        'invalid tactical preferences',
+      );
+      assert(
+        c.tactics.doctrineId === undefined || typeof c.tactics.doctrineId === 'string',
+        'invalid doctrine preference',
+      );
+      assert(
+        c.tactics.modifiers === undefined ||
+          (Array.isArray(c.tactics.modifiers) &&
+            c.tactics.modifiers.every((s) => typeof s === 'string')),
+        'invalid modifier preference',
+      );
+      assert(
+        c.tactics.parameters === undefined ||
+          (c.tactics.parameters &&
+            typeof c.tactics.parameters === 'object' &&
+            !Array.isArray(c.tactics.parameters)),
+        'invalid tactical parameters',
+      );
+    }
     for (const u of c.unitIds) {
       assert(!units.has(u), `multiple commanders own ${u}`);
       units.add(u);

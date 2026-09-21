@@ -81,3 +81,29 @@ export function distance(
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+/** A lookup belongs to one immutable observation snapshot, never to a mutable host map. */
+export function createDistanceLookup(map: {
+  locations: { id: string; neighbors: string[]; blocked: boolean }[];
+}) {
+  const locations = new Map(
+    map.locations.map((l) => [l.id, { neighbors: [...l.neighbors], blocked: l.blocked }]),
+  );
+  const cache = new Map<string, Map<string, number>>();
+  return (from: string, to: string): number => {
+    let distances = cache.get(from);
+    if (!distances) {
+      distances = new Map([[from, 0]]);
+      const queue = [from];
+      for (let i = 0; i < queue.length; i++) {
+        const id = queue[i]!;
+        for (const next of locations.get(id)?.neighbors ?? []) {
+          if (distances.has(next) || !locations.has(next) || locations.get(next)!.blocked) continue;
+          distances.set(next, distances.get(id)! + 1);
+          queue.push(next);
+        }
+      }
+      cache.set(from, distances);
+    }
+    return distances.get(to) ?? Infinity;
+  };
+}

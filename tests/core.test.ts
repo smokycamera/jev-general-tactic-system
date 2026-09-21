@@ -24,6 +24,7 @@ import type {
 import { DemoAdapter, createObservation, defaultCommanders } from '@jev/demo';
 const policy = {
   tickDelayMs: 0,
+  modelActionMode: 'model' as const,
   requestTimeoutMs: 10,
   decisionBudgetMs: 200,
   failureThreshold: 2,

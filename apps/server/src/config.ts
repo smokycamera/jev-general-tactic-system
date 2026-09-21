@@ -2,7 +2,9 @@ import { readFile } from 'node:fs/promises';
 import Ajv from 'ajv';
 import type { CapabilityProfile, Commander, Goal, RuntimePolicy, WorkflowProfile } from '@jev/core';
 import { assert, PROFILES, defaultStyles, validateCommanders, validateGoals } from '@jev/core';
+import type { ExecutionPolicy } from '@jev/core';
 export interface Configuration {
+  executionPolicy?: Partial<ExecutionPolicy>;
   workflow?: WorkflowProfile;
   version: 1;
   commanders: Commander[];
