@@ -32,6 +32,8 @@ const service = createService({
   allowedOrigins: (process.env.JEV_ALLOWED_ORIGINS ?? '').split(',').filter(Boolean),
 });
 const port = Number(process.env.PORT ?? 4317);
+const recovery = await service.restoreSavedSessions();
+if (recovery.errors.length) console.error('部分会话未能恢复：', recovery.errors);
 service.server.listen(port, '127.0.0.1', () =>
   console.log(
     `JEV 指挥室 http://127.0.0.1:${port} · ${provider ? 'Jev' : '本地规则'} · silent-auto`,

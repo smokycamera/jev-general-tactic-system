@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
@@ -337,8 +337,32 @@ export function createService(options: ServiceOptions = {}) {
     server,
     sessions,
     getSession: get,
+    async restoreSavedSessions() {
+      const errors: { id: string; error: string }[] = [];
+      if (!options.dataDirectory) return { resumed: 0, errors };
+      const files = await readdir(options.dataDirectory).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      });
+      let resumed = 0;
+      for (const file of files.filter((name) => /^[a-zA-Z0-9_.-]+\.json$/.test(name))) {
+        const id = file.slice(0, -5);
+        try {
+          const checkpoint = await store.load(id);
+          if (!checkpoint) continue;
+          const { runtime, adapter } = await get(id);
+          if (!checkpoint.paused && !(await adapter.observe()).ended) {
+            runtime.notify();
+            resumed++;
+          }
+        } catch (error) {
+          errors.push({ id, error: errorMessage(error) });
+        }
+      }
+      return { resumed, errors };
+    },
     async close() {
-      for (const { runtime } of sessions.values()) await runtime.pause();
+      for (const { runtime } of sessions.values()) await runtime.shutdown();
       if (server.listening)
         await new Promise<void>((resolve, reject) =>
           server.close((error) => (error ? reject(error) : resolve())),

@@ -277,8 +277,6 @@ async function run(operation: string, data: unknown = {}) {
 }
 function on(id: string, action: () => Promise<void> | void) {
   document.querySelector(`#${id}`)!.addEventListener('click', () => {
-    const priority = ['pause', 'manual', 'set-goal', 'apply-commander'].includes(id);
-    if (busy && !priority) return;
     pendingOperations++;
     busy = true;
     Promise.resolve()

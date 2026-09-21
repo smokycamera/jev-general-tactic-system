@@ -548,6 +548,20 @@ export class CommandRuntime {
       if (this.initialized) await this.persist();
     });
   }
+  /** Stop this process while preserving whether the player explicitly paused the session. */
+  async shutdown(): Promise<void> {
+    const playerPaused = this.paused;
+    this.paused = true;
+    this.invalidate();
+    return this.queue.run(async () => {
+      try {
+        this.paused = playerPaused;
+        if (this.initialized) await this.persist();
+      } finally {
+        this.paused = true;
+      }
+    });
+  }
   async resume(): Promise<Status> {
     this.paused = false;
     return this.start();

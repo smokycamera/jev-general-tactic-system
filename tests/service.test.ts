@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createService } from '../apps/server/src/app.js';
 const services: ReturnType<typeof createService>[] = [];
 afterEach(async () => {
@@ -12,6 +15,30 @@ async function setup(config: Parameters<typeof createService>[0] = {}) {
   return { service, url: `http://127.0.0.1:${(service.server.address() as AddressInfo).port}` };
 }
 describe('本机服务', () => {
+  it('automatically resumes an unpaused saved session after process restart', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'jev-restart-'));
+    const first = createService({ dataDirectory: directory, tickDelayMs: 1 });
+    const second = createService({ dataDirectory: directory, tickDelayMs: 1 });
+    try {
+      const original = await first.getSession('restart', 'regions');
+      await original.runtime.step();
+      const before = original.runtime.state.metrics.actions;
+      await first.close();
+      expect((await second.restoreSavedSessions()).resumed).toBe(1);
+      const recovered = await second.getSession('restart');
+      for (let i = 0; i < 100 && recovered.runtime.state.metrics.actions <= before; i++)
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(recovered.runtime.state.metrics.actions).toBeGreaterThan(before);
+      await recovered.runtime.pause();
+      await second.close();
+      const third = createService({ dataDirectory: directory });
+      expect((await third.restoreSavedSessions()).resumed).toBe(0);
+      await third.close();
+    } finally {
+      await second.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('runs and pauses a session, allows single step while paused, and exports a full checkpoint', async () => {
     const { url } = await setup();
     const created = await fetch(`${url}/api/sessions`, {
