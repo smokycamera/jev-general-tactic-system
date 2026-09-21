@@ -158,6 +158,7 @@ export class CommandRuntime {
   private queue = new SerialQueue();
   private aborter: AbortController | null = null;
   private epoch = 0;
+  private controlVersion = 0;
   private looping = false;
   private initialized = false;
   private plan: BattlePlan = { id: 'pending', version: 0, goals: [], tasks: [], createdTurn: 0 };
@@ -585,14 +586,21 @@ export class CommandRuntime {
   }
   async singleStep(): Promise<Status> {
     if (!this.initialized) await this.initialize();
+    const controlVersion = this.controlVersion + 1;
     await this.pause();
     return this.queue.run(async () => {
+      if (controlVersion !== this.controlVersion) return this.status;
       this.paused = false;
       try {
         await this.stepInside();
       } finally {
-        this.paused = true;
-        if (this.statusValue.state !== 'ended' && this.statusValue.state !== 'stopped')
+        // A later start/pause command owns the desired mode, even while this step settles.
+        if (controlVersion === this.controlVersion) this.paused = true;
+        if (
+          this.paused &&
+          this.statusValue.state !== 'ended' &&
+          this.statusValue.state !== 'stopped'
+        )
           this.setStatus('paused', '单步已完成');
         await this.persist();
       }
@@ -600,8 +608,10 @@ export class CommandRuntime {
     });
   }
   async start(maxActions = 10000): Promise<Status> {
-    if (this.looping) return this.status;
+    if (!this.initialized) await this.initialize();
+    this.controlVersion++;
     this.paused = false;
+    if (this.looping) return this.status;
     this.looping = true;
     try {
       for (let i = 0; i < maxActions && !this.paused; i++) {
@@ -620,6 +630,7 @@ export class CommandRuntime {
       void this.start().catch((e) => this.setStatus('stopped', errorMessage(e)));
   }
   async pause(): Promise<void> {
+    this.controlVersion++;
     this.paused = true;
     this.invalidate();
     return this.queue.run(async () => {
@@ -629,6 +640,7 @@ export class CommandRuntime {
   }
   /** Stop this process while preserving whether the player explicitly paused the session. */
   async shutdown(): Promise<void> {
+    this.controlVersion++;
     const playerPaused = this.paused;
     this.paused = true;
     this.invalidate();
@@ -642,7 +654,6 @@ export class CommandRuntime {
     });
   }
   async resume(): Promise<Status> {
-    this.paused = false;
     return this.start();
   }
   async updateGoals(goals: Goal[]): Promise<void> {

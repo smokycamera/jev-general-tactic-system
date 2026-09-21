@@ -342,6 +342,31 @@ function executable(specs: TaskSpec[]) {
   };
 }
 describe('持续执行与恢复', () => {
+  it('a later start request survives an unfinished single step', async () => {
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    class SlowHost extends DemoAdapter {
+      async execute(e: ActionEnvelope) {
+        entered();
+        await held;
+        return super.execute(e);
+      }
+    }
+    const runtime = runtimeFor(new SlowHost());
+    const single = runtime.singleStep();
+    await started;
+    const automatic = runtime.start(2);
+    release();
+    await Promise.all([single, automatic]);
+    expect(runtime.state.metrics.actions).toBe(3);
+    expect(runtime.status.state).toBe('idle');
+    expect((await runtime.exportCheckpoint()).paused).toBe(false);
+  });
   it('an attack preference cannot override an explicit withdrawal goal', async () => {
     const o = createObservation();
     o.goals = [
