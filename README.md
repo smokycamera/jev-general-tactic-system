@@ -30,6 +30,7 @@ When a host creates a sample session with `POST /api/sessions`, the session star
 - Five capability levels, a 14-dimension commander style model, 33 tactic templates, 10 composable supporting tactics, and open parameters.
 - Extensible HTN methods, operators, and executors with task dependencies, preconditions, prediction, backtracking, regrouping, covering actions, and local repair.
 - Dynamic strategy adjustment based on the pre-battle plan, mission objectives, and current battlefield situation.
+- Generic, batched [context choices](docs/context-selection.md) for host-defined setup options, using the existing JEV connection.
 - Optional narrative-extraction model, with configurable context forwarding to JEV.
 - Local HTTP service, SVG debug panel, configuration schema, tests, and CI.
 

@@ -79,6 +79,7 @@ export function validateContextSelectionAnswer(
     const s = a.selections[f.id];
     assert(
       s &&
+        typeof s.value === 'string' &&
         Object.hasOwn(f.options, s.value) &&
         Number.isFinite(s.confidence) &&
         s.confidence >= 0 &&
