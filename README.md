@@ -4,7 +4,7 @@
 
 **默认 `silent-auto`：不弹出审批、不要求每回合确认。** 没有模型密钥时，使用本地规则完整运行。调试面板只供主动查看和干预。
 
-仓库：`smokycamera/jev-general-tactic-system`。基础版本 `0.2.0`。通用核心独立于宿主；`smokycamera/tavern-battle` 已增加可选 JEV 适配，见 [酒馆接入说明](docs/tavern-contract.md)。
+仓库：`smokycamera/jev-general-tactic-system`。当前版本 `0.2.1`。通用核心独立于宿主；`smokycamera/tavern-battle` 已增加可选 JEV 适配，见 [酒馆接入说明](docs/tavern-contract.md)。
 
 ## 启动
 
@@ -96,4 +96,4 @@ CI 在 Linux / Node 22 上执行类型检查、单元与集成测试、构建和
 - [验收对应与限制](docs/acceptance.md)
 - [版本记录](CHANGELOG.md)
 
-本仓库为私有开发交付，暂未授予公开复用许可（`UNLICENSED`）。
+本项目沿用酒馆插件的 [战阵非商业使用许可证 1.0](LICENSE)。非商业使用、修改与分发免费，商业使用须事先获得作者书面授权并付费，见 [商业授权](COMMERCIAL-LICENSE.md)。第三方依赖保留各自许可证；这不是 OSI 意义的开源许可证。

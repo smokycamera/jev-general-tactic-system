@@ -1,13 +1,8 @@
-import type { Goal, NarrativeContext, NarrativeMessage, Observation } from './types.js';
+import type { Goal, NarrativeMessage, Observation } from './types.js';
 import { assert, clone } from './util.js';
 const priority = { default: 0, narrative: 1, host: 2, user: 3 };
 export function validateGoals(goals: Goal[], observation?: Observation): void {
   for (const goal of goals) {
-    if (observation)
-      assert(
-        observation.units.some((u) => u.side === goal.side),
-        'unknown goal side',
-      );
     assert(
       typeof goal.id === 'string' && goal.id.length > 0 && goal.id.length < 160,
       'invalid goal id',
@@ -61,31 +56,4 @@ export function narrativeWindow(
 ): NarrativeMessage[] {
   if (!Number.isInteger(count) || count <= 0) return [];
   return messages.filter((m) => m.completed && roles.includes(m.role)).slice(-count);
-}
-
-/** Whitelist hints; ignore fabricated unit state and other model output fields. */
-export function validateNarrativeContext(
-  value: Goal[] | NarrativeContext,
-  observation: Observation,
-): NarrativeContext {
-  const input = Array.isArray(value) ? { goals: value } : value;
-  assert(input && Array.isArray(input.goals) && input.goals.length <= 20, 'invalid context goals');
-  const goals = input.goals.map((g) => ({ ...g, source: 'narrative' as const }));
-  validateGoals(goals, observation);
-  const result: NarrativeContext = { goals };
-  for (const key of ['battleType', 'summary'] as const)
-    if (input[key] !== undefined) {
-      assert(typeof input[key] === 'string' && input[key]!.length <= 2000, 'invalid context text');
-      result[key] = input[key];
-    }
-  if (input.environment !== undefined) {
-    assert(
-      Array.isArray(input.environment) &&
-        input.environment.length <= 20 &&
-        input.environment.every((s) => typeof s === 'string' && s.length <= 200),
-      'invalid context environment',
-    );
-    result.environment = [...input.environment];
-  }
-  return result;
 }
