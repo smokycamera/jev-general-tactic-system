@@ -41,3 +41,5 @@
 ## 扩展任务网络
 
 新增操作、预测效果、运行期条件、替代分解、辅助战法和宿主能力，无需改核心调度器。参见 [完整契约](modular-tactics.md) 和 [可编译示例](../examples/task-network.ts)。旧的 TaskMethod 可继续只提供 phases/actionBias；需要执行依赖时提供 decompose。
+
+自定义 `TaskExecutor.options()` 可以返回没有 `stepId` 的候选，表示执行宿主定义的即时响应动作，不推进任何计划步骤。例如，宿主可以在这里允许治疗、紧急修理或更换装备；核心不硬编码这些动作种类。单位授权、已有异步命令与单位占用检查仍然生效。普通任务返回已有的 `{stepId, score}` 即可，无须改动。

@@ -126,7 +126,9 @@ export interface TaskExecutor {
     task: Task,
     progress: TaskProgress,
     context: EvaluationContext,
-  ): { stepId: string; score: number }[];
+    /** Omit stepId for a host-defined reactive action that does not advance a plan step.
+     * Authorization, in-flight orders and unit leases are still checked by the runtime. */
+  ): { stepId?: string; score: number }[];
 }
 export interface ExecutionPolicy {
   maxIdleTurns: number;

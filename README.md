@@ -4,7 +4,7 @@
 
 **默认 `silent-auto`：不弹出审批、不要求每回合确认。** 没有模型密钥时，使用本地规则完整运行。调试面板只供主动查看和干预。
 
-仓库：`smokycamera/jev-general-tactic-system`。当前版本 `0.2.0`。这是独立的游戏决策框架，本轮不修改现有酒馆战斗插件。
+仓库：`smokycamera/jev-general-tactic-system`。当前版本 `0.2.1`。通用核心独立于宿主；`smokycamera/tavern-battle` 已增加可选 JEV 适配，见 [酒馆接入说明](docs/tavern-contract.md)。
 
 ## 启动
 
@@ -51,11 +51,11 @@ TYPESAFE_API_KEY=你的密钥
 JEV_MODEL=jev-latest
 ```
 
-重启服务即可。默认单次请求 10 秒，决策预算 30 秒，每次调度最多 2 次模型请求。默认普通动作在本地执行，Jev 用于战法选择；战术树不会逐层调用模型。SDK 内部重试关闭，预算与降级由运行器统一管理。没有密钥时不会向 Jev 发出请求。
+重启服务即可。默认单次请求 10 秒，决策预算 30 秒，每次调度最多 2 次模型请求，可配置到硬上限 10 次（正文提取共用预算）。双方分别在首次激活时建立计划。默认普通动作在本地执行，Jev 用于战法选择；战术树不会逐层调用模型。SDK 内部重试关闭，预算与降级由运行器统一管理。没有密钥时不会向 Jev 发出请求。
 
 正文模型单独配置 `TEXT_API_URL`（完整的兼容 chat-completions 地址）、`TEXT_API_KEY`、`TEXT_MODEL`。宿主通过 `NarrativeSource` 提供消息；演示服务也提供 `/narrative` 接口。该模型只提取任务，不执行动作。正文与战场可见信息会发送到配置的模型服务，请按实际使用选择提供方。
 
-参考：[Jev JavaScript SDK](https://docs.typesafe.ai/sdk/javascript)、[问题的批量与分阶段组合](https://docs.typesafe.ai/primitives)。此交付的 SDK 协议测试使用模拟 HTTP 响应；没有配置真实密钥，在线模型质量和延迟尚未实测。
+参考：[Jev JavaScript SDK](https://docs.typesafe.ai/sdk/javascript)、[问题的批量与分阶段组合](https://docs.typesafe.ai/primitives)。SDK 协议回归使用模拟响应。2026-09-22 的独立在线冒烟返回 `jev-1.13.0`，两个游戏候选请求约 1.8 秒；这只证明联通，不代表普遍延迟或战术质量。可用 `node --env-file=.env --import tsx scripts/live-smoke.ts` 显式复测，CI 不消费真实密钥。
 
 ## 修改配置
 
@@ -88,6 +88,7 @@ CI 在 Linux / Node 22 上执行类型检查、单元与集成测试、构建和
 详细资料：
 
 - [架构和目录](docs/architecture.md)
+- [0.2.1 核心边界审查](docs/core-boundaries.md)
 - [运行、保存与服务接口](docs/runtime.md)
 - [能力、风格和战法](docs/behavior.md)
 - [模块化任务规划与缺失机制适配](docs/modular-tactics.md)
@@ -96,4 +97,4 @@ CI 在 Linux / Node 22 上执行类型检查、单元与集成测试、构建和
 - [验收对应与限制](docs/acceptance.md)
 - [版本记录](CHANGELOG.md)
 
-本仓库为私有开发交付，暂未授予公开复用许可（`UNLICENSED`）。
+本项目沿用酒馆插件的 [战阵非商业使用许可证 1.0](LICENSE)。非商业使用、修改与分发免费，商业使用须事先获得作者书面授权并付费，见 [商业授权](COMMERCIAL-LICENSE.md)。第三方依赖保留各自许可证；这不是 OSI 意义的开源许可证。

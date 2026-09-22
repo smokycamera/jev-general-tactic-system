@@ -141,10 +141,38 @@
         "maxModelCallsPerDecision": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 10
         },
         "modelActionMode": {
           "enum": ["local", "model"]
+        },
+        "narrativeContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["windowSize", "roles", "trigger", "mode"],
+          "properties": {
+            "windowSize": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "trigger": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": ["battle-start", "message-change", "decision", "manual"]
+              }
+            },
+            "mode": {
+              "enum": ["auto", "manual", "off"]
+            }
+          }
         }
       }
     },

@@ -1,15 +1,16 @@
 {
   "name": "@jev/server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@jev/core": "0.2.0",
-    "@jev/demo": "0.2.0",
-    "@jev/providers": "0.2.0",
+    "@jev/core": "0.2.1",
+    "@jev/demo": "0.2.1",
+    "@jev/providers": "0.2.1",
     "ajv": "^8.17.1"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
-  }
+  },
+  "license": "SEE LICENSE IN LICENSE"
 }

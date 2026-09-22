@@ -54,5 +54,6 @@ export function narrativeWindow(
   count = 6,
   roles = ['assistant'],
 ): NarrativeMessage[] {
-  return messages.filter((m) => m.completed && roles.includes(m.role)).slice(-Math.max(0, count));
+  if (!Number.isInteger(count) || count <= 0) return [];
+  return messages.filter((m) => m.completed && roles.includes(m.role)).slice(-count);
 }

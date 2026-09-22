@@ -14,3 +14,4 @@ export * from './htn.js';
 export * from './execution.js';
 export * from './operators.js';
 export * from './tactics.js';
+export * from './narrative.js';

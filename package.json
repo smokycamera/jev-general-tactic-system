@@ -1,6 +1,6 @@
 {
   "name": "jev-tactics",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "可扩展、可恢复、默认静默自动执行的游戏指挥决策框架",
@@ -36,5 +36,5 @@
     "vite": "^7.1.7",
     "vitest": "^3.2.4"
   },
-  "license": "UNLICENSED"
+  "license": "SEE LICENSE IN LICENSE"
 }
