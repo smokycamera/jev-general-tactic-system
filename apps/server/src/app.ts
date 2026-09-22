@@ -189,7 +189,7 @@ export function createService(options: ServiceOptions = {}) {
         commanders: defaultCommanders(),
       });
       send(res, 200, {
-        version: '0.2.2',
+        version: '0.2.3',
         mode: 'silent-auto',
         provider: options.provider?.id ?? 'local',
         bridge: { protocol: 1, context: !!options.extractor, selection: !!options.selector },

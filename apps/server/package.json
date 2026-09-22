@@ -1,12 +1,12 @@
 {
   "name": "@jev/server",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@jev/core": "0.2.2",
-    "@jev/demo": "0.2.2",
-    "@jev/providers": "0.2.2",
+    "@jev/core": "0.2.3",
+    "@jev/demo": "0.2.3",
+    "@jev/providers": "0.2.3",
     "ajv": "^8.17.1"
   },
   "scripts": {
