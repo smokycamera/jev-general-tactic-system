@@ -16,3 +16,4 @@ export * from './operators.js';
 export * from './tactics.js';
 export * from './narrative.js';
 export * from './targeting.js';
+export * from './context-selection.js';
