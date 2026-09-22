@@ -88,6 +88,7 @@ CI 在 Linux / Node 22 上执行类型检查、单元与集成测试、构建和
 详细资料：
 
 - [架构和目录](docs/architecture.md)
+- [0.2.1 核心边界审查](docs/core-boundaries.md)
 - [运行、保存与服务接口](docs/runtime.md)
 - [能力、风格和战法](docs/behavior.md)
 - [模块化任务规划与缺失机制适配](docs/modular-tactics.md)
