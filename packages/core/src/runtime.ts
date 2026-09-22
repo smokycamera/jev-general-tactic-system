@@ -87,6 +87,7 @@ import {
   stable,
 } from './util.js';
 import { validateCheckpoint } from './store.js';
+import { rememberLocations, resolveTarget, targetIntent } from './targeting.js';
 export const DEFAULT_POLICY: RuntimePolicy = {
   mode: 'silent-auto',
   requestTimeoutMs: 10000,
@@ -185,6 +186,8 @@ export class CommandRuntime {
   private stats = metrics();
   private narrativeKey = '';
   private narrativeContext: NarrativeContext | undefined;
+  private memory: NonNullable<Checkpoint['memory']> = Object.create(null);
+  private lastModelSelection: Checkpoint['lastModelSelection'];
   private failures = 0;
   private cooldownUntil = 0;
   private decisionEnd = 0;
@@ -337,6 +340,7 @@ export class CommandRuntime {
       candidates: this.lastCandidates,
       assignments: this.lastAssignments,
       activeOrders: this.activeOrders,
+      lastModelSelection: this.lastModelSelection,
     });
   }
   private setStatus(state: Status['state'], detail: string) {
@@ -369,6 +373,8 @@ export class CommandRuntime {
         this.narrativeKey = saved.narrativeKey ?? '';
         this.narrativeContext = saved.narrativeContext;
         this.activeOrders = saved.activeOrders ?? [];
+        this.memory = saved.memory ?? Object.create(null);
+        this.lastModelSelection = saved.lastModelSelection;
         validateCommanders(this.commanders, this.styles, this.profiles);
       } else {
         this.plan = {
@@ -407,6 +413,8 @@ export class CommandRuntime {
       narrativeKey: this.narrativeKey,
       ...(this.narrativeContext ? { narrativeContext: clone(this.narrativeContext) } : {}),
       activeOrders: clone(this.activeOrders),
+      memory: clone(this.memory),
+      ...(this.lastModelSelection ? { lastModelSelection: clone(this.lastModelSelection) } : {}),
     };
   }
   private async retry<T>(fn: () => Promise<T>): Promise<T> {
@@ -454,6 +462,18 @@ export class CommandRuntime {
     assert(receipt.key === envelope.key, 'receipt key mismatch');
     if (!this.receipts.some((r) => r.key === receipt!.key)) {
       this.receipts.push(receipt);
+      const observation = await this.options.adapter.observe();
+      const side = this.commanders.find((c) => c.unitIds.includes(envelope.action.unitId))?.side;
+      if (side) {
+        const memory = this.memoryFor(side);
+        memory.history.push({
+          key: envelope.key,
+          turn: envelope.turn ?? observation.turn,
+          action: clone(envelope.action),
+          outcome: receipt.applied ? (receipt.execution ?? 'succeeded') : 'rejected',
+        });
+        memory.history = memory.history.slice(-24);
+      }
       if (receipt.applied && receipt.execution === 'running')
         this.activeOrders.push({ key: receipt.key, unitId: envelope.action.unitId });
       if (receipt.applied) this.stats.actions++;
@@ -496,6 +516,13 @@ export class CommandRuntime {
       await this.reconcilePending();
       const o = await this.options.adapter.observe();
       if (this.narrativeContext) o.narrativeContext = clone(this.narrativeContext);
+      for (const memory of Object.values(this.memory))
+        for (const action of memory.history)
+          if (
+            action.outcome === 'running' &&
+            ['succeeded', 'failed'].includes(o.orders?.[action.key] ?? '')
+          )
+            action.outcome = o.orders![action.key] as 'succeeded' | 'failed';
       for (const progress of Object.values(this.progress)) syncExecutionOrders(progress, o);
       this.activeOrders = this.activeOrders.filter(
         (a) => !['succeeded', 'failed'].includes(o.orders?.[a.key] ?? 'running'),
@@ -516,6 +543,7 @@ export class CommandRuntime {
           const unit = o.units.find((u) => u.id === id);
           assert(!unit || unit.side === cmd.side, 'host unit ownership mismatch');
         }
+      rememberLocations(this.memoryFor(o.activeSide), o, o.activeSide);
       const context: DecisionContext = {
         observation: o,
         commanders: clone(this.commanders),
@@ -567,6 +595,7 @@ export class CommandRuntime {
       );
       // Persist an intent BEFORE submitting. Retries reuse this exact idempotency key.
       this.pending = {
+        turn: o.turn,
         sessionId: o.sessionId,
         stateVersion: o.version,
         planVersion: this.plan.version,
@@ -763,6 +792,7 @@ export class CommandRuntime {
         }
       this.plan.version++;
       this.pending = {
+        turn: o.turn,
         sessionId: o.sessionId,
         stateVersion: o.version,
         planVersion: this.plan.version,
@@ -840,6 +870,7 @@ export class CommandRuntime {
     request: DecisionRequest,
     signal: AbortSignal,
   ): Promise<Candidate | undefined> {
+    request.recentActions = clone(this.memoryFor(request.commander.side).history);
     const candidates = request.candidates;
     const local = (this.options.selector ?? defaultSelector).select(candidates);
     if (
@@ -870,14 +901,22 @@ export class CommandRuntime {
       this.failures = 0;
       this.cooldownUntil = 0;
       this.statusValue.provider = answer.model;
-      // Low confidence retains the locally evaluated plan instead of asking the player.
-      if (answer.confidence < 0.55) return local;
-      return (this.options.selector ?? defaultSelector).select(
+      // Confidence continuously attenuates bounded model evidence; zero preserves local scores.
+      const selected = (this.options.selector ?? defaultSelector).select(
         candidates.map((c) => ({
           ...c,
           total: c.total + clamp(answer.scores[c.id] ?? 0.5) * 3 * answer.confidence,
         })),
       );
+      this.lastModelSelection = {
+        model: answer.model,
+        confidence: answer.confidence,
+        purpose: request.purpose,
+        stateVersion: request.stateVersion,
+        localId: local?.id ?? '',
+        selectedId: selected?.id ?? '',
+      };
+      return selected;
     } catch (error) {
       if (signal.aborted) throw error;
       this.failures++;
@@ -914,7 +953,18 @@ export class CommandRuntime {
     return {
       ...evaluationContext(o, commander, this.profiles[commander.ability]!, goals),
       capabilities: this.capabilityResolver.resolve(o),
+      memory: this.memoryFor(commander.side),
     };
+  }
+  private memoryFor(side: string): import('./types.js').TacticalMemory {
+    if (!Object.hasOwn(this.memory, side))
+      Object.defineProperty(this.memory, side, {
+        value: { visited: [], history: [] },
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    return this.memory[side]!;
   }
   private compile(
     method: import('./types.js').TaskMethod,
@@ -968,6 +1018,10 @@ export class CommandRuntime {
       if (commander.side !== c.observation.activeSide) continue;
       const context = this.context(c.observation, commander, c.goals);
       const old = c.plan.tasks.find((t) => t.level === 'tactics' && t.commanderId === commander.id);
+      const target = resolveTarget(context, old?.target);
+      if (target) context.target = target;
+      const changedTarget = targetIntent(context.target) !== targetIntent(old?.target);
+      if (old && !changedTarget && target) old.target = target;
       const progress = old ? c.progress[old.id] : undefined;
       const strength = c.observation.units
         .filter((u) => commander.unitIds.includes(u.id))
@@ -1031,6 +1085,7 @@ export class CommandRuntime {
         old?.locked ||
         (old &&
           !changedGoals &&
+          !changedTarget &&
           !affected &&
           !failure &&
           !migrate &&
@@ -1040,6 +1095,7 @@ export class CommandRuntime {
         continue;
       const failedDoctrines =
         changedGoals ||
+        changedTarget ||
         old?.configurationKey !== configurationKey ||
         old?.capabilityKey !== capabilityKey
           ? []
@@ -1088,11 +1144,21 @@ export class CommandRuntime {
             continuity: old?.doctrineId === m.id ? 0.3 : 0,
             style,
             total: utility + style,
+            steps:
+              compiled
+                .get(m.id)
+                ?.network?.steps.map(({ effects: _effects, ...step }) => clone(step)) ?? [],
             summary:
               compiled
                 .get(m.id)
                 ?.network?.steps.map(
-                  (s) => (STEP_LABELS[s.task] ?? s.task) + '[' + s.unitIds.join(',') + ']',
+                  (s) =>
+                    (STEP_LABELS[s.task] ?? s.task) +
+                    '[' +
+                    s.unitIds.join(',') +
+                    ']' +
+                    (s.target ? ' @' + s.target : '') +
+                    (s.targetUnitId ? ' →' + s.targetUnitId : ''),
                 )
                 .join(' → ') ?? m.label,
           };
@@ -1132,6 +1198,7 @@ export class CommandRuntime {
           .map((m) => m.id),
       );
       task.configurationKey = configurationKey;
+      if (context.target) task.target = context.target;
       task.goalKey = goalKey;
       task.capabilityKey = capabilityKey;
       task.failedDoctrines = [...new Set(failedDoctrines)];

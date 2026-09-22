@@ -25,6 +25,7 @@ import { clone, stable } from './util.js';
 export const DEFAULT_EXECUTION_POLICY: ExecutionPolicy = { maxIdleTurns: 3, maxRepairs: 2 };
 export const STEP_LABELS: Record<string, string> = {
   move: '接近与机动',
+  search: '搜索接触',
   rally: '集结',
   engage: '交战',
   fire: '火力准备',
@@ -151,6 +152,9 @@ export class NetworkExecutor implements TaskExecutor {
     for (const step of orderedTasks(task.network.steps)) {
       const p = (e.steps[step.id] ??= freshStep(o.turn));
       if (p.status === 'succeeded' || p.status === 'skipped') continue;
+      const contact =
+        step.targetUnitId && o.units.find((u) => u.id === step.targetUnitId && u.hp > 0);
+      if (contact) step.target = contact.location;
       if (
         !step.after.every((id) =>
           ['succeeded', 'skipped'].includes(e.steps[id]?.status ?? 'pending'),

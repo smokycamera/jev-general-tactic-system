@@ -27,7 +27,7 @@ When a host creates a sample session with `POST /api/sessions`, the session star
 ## Implemented Features
 
 - JEV-controlled command hierarchy, five tactical categories, and concrete tactic selection.
-- Five capability levels, a 14-dimension commander style model, 32 tactic templates, 10 composable supporting tactics, and open parameters.
+- Five capability levels, a 14-dimension commander style model, 33 tactic templates, 10 composable supporting tactics, and open parameters.
 - Extensible HTN methods, operators, and executors with task dependencies, preconditions, prediction, backtracking, regrouping, covering actions, and local repair.
 - Dynamic strategy adjustment based on the pre-battle plan, mission objectives, and current battlefield situation.
 - Optional narrative-extraction model, with configurable context forwarding to JEV.
@@ -80,6 +80,7 @@ Documentation:
 
 - [Architecture and repository layout](docs/architecture.md)
 - [0.2.1 core boundary review](docs/core-boundaries.md)
+- [Adaptive targeting, search and bounded action history](docs/adaptive-planning.md)
 - [Runtime, persistence, and service API](docs/runtime.md)
 - [Capabilities, commander styles, and tactics](docs/behavior.md)
 - [Modular task planning and missing-mechanic adaptation](docs/modular-tactics.md)

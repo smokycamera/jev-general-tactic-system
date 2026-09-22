@@ -6,7 +6,8 @@ test('tactical preferences show execution dependencies and missing-mechanic fall
   await expect(page.locator('#manual-action option')).not.toHaveCount(0);
   await page.locator('.tactical-settings summary').click();
   await expect(page.locator('#doctrine optgroup')).toHaveCount(5);
-  await expect(page.locator('#doctrine option')).toHaveCount(33);
+  await expect(page.locator('#doctrine option')).toHaveCount(34);
+  await expect(page.locator('#doctrine option[value="search-contact"]')).toHaveText('搜索接触');
   await page.locator('#doctrine').selectOption('fire-then-assault');
   await page.getByLabel('烟幕与遮蔽', { exact: true }).check();
   await page.getByLabel('火力压制', { exact: true }).check();

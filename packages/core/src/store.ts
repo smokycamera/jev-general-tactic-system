@@ -30,6 +30,51 @@ export function validateCheckpoint(value: unknown): asserts value is Checkpoint 
     'incomplete checkpoint',
   );
   const keys = new Set<string>();
+  if (v.lastModelSelection) {
+    const selection = v.lastModelSelection;
+    assert(
+      typeof selection.model === 'string' &&
+        Number.isFinite(selection.confidence) &&
+        selection.confidence >= 0 &&
+        selection.confidence <= 1 &&
+        ['family', 'doctrine', 'action'].includes(selection.purpose) &&
+        Number.isSafeInteger(selection.stateVersion) &&
+        typeof selection.localId === 'string' &&
+        typeof selection.selectedId === 'string',
+      'invalid model selection',
+    );
+  }
+  if (v.memory !== undefined) {
+    assert(
+      v.memory && typeof v.memory === 'object' && !Array.isArray(v.memory),
+      'invalid tactical memory',
+    );
+    for (const memory of Object.values(v.memory)) {
+      assert(
+        memory &&
+          Array.isArray(memory.visited) &&
+          memory.visited.length <= 512 &&
+          memory.visited.every((id) => typeof id === 'string'),
+        'invalid visited locations',
+      );
+      assert(
+        Array.isArray(memory.history) && memory.history.length <= 24,
+        'invalid action history',
+      );
+      for (const entry of memory.history)
+        assert(
+          entry &&
+            typeof entry.key === 'string' &&
+            Number.isSafeInteger(entry.turn) &&
+            ['succeeded', 'running', 'failed', 'rejected'].includes(entry.outcome) &&
+            entry.action &&
+            typeof entry.action.id === 'string' &&
+            typeof entry.action.unitId === 'string' &&
+            typeof entry.action.kind === 'string',
+          'invalid action history entry',
+        );
+    }
+  }
   for (const r of v.receipts) {
     assert(typeof r.key === 'string' && !keys.has(r.key), 'duplicate checkpoint receipt');
     keys.add(r.key);

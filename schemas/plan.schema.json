@@ -158,6 +158,22 @@
           },
           "goalKey": {
             "type": "string"
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "location"],
+            "properties": {
+              "kind": {
+                "enum": ["fixed", "contact", "search"]
+              },
+              "location": {
+                "type": "string"
+              },
+              "unitId": {
+                "type": "string"
+              }
+            }
           }
         }
       }
@@ -248,6 +264,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "targetUnitId": {
+                "type": "string"
               }
             }
           }

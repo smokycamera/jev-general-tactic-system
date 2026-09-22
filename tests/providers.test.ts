@@ -48,8 +48,18 @@ describe('官方 SDK 与模型回放', () => {
     expect(runtime.state.metrics.actions).toBe(1);
     expect(runtime.state.metrics.fallbacks).toBe(0);
     expect(calls.length).toBeGreaterThan(1);
-    for (const call of calls)
+    for (const call of calls) {
       expect(Object.keys(call.questions as object).length).toBeGreaterThanOrEqual(4);
+      const state = JSON.parse(String(call.state));
+      expect(Array.isArray(state.recentActions)).toBe(true);
+      if (state.purpose === 'doctrine')
+        expect(state.candidates.every((c: { steps: unknown[] }) => c.steps.length > 0)).toBe(true);
+      expect(
+        state.candidates.every(
+          (c: Record<string, unknown>) => !('total' in c) && !('utility' in c),
+        ),
+      ).toBe(true);
+    }
     expect(runtime.state.records[0]?.answer?.model).toBe('mock-jev');
     expect(JSON.stringify(runtime.state)).not.toContain('test-only');
   });

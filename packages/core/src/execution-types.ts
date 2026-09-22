@@ -39,6 +39,8 @@ export interface TaskSpec {
   unitIds: string[];
   after: string[];
   target?: string;
+  /** Resolve only against the current observation; target retains the last known location. */
+  targetUnitId?: string;
   data?: Record<string, Json>;
   optional?: boolean;
   resources?: string[];

@@ -95,6 +95,7 @@ export interface BattleAction {
   features: Features;
 }
 export interface ActionEnvelope {
+  turn?: number;
   sessionId: string;
   stateVersion: number;
   planVersion: number;
@@ -169,6 +170,8 @@ export interface Task {
   modifiers?: string[];
   capabilityKey?: string;
   failedDoctrines?: string[];
+  /** Fixed objectives, observed contacts and exploratory waypoints have different lifetimes. */
+  target?: TacticalTarget;
 }
 export interface TaskProgress {
   taskId: string;
@@ -233,6 +236,24 @@ export interface Candidate {
   summary?: string;
   commanderId?: string;
   goal?: Goal;
+  /** Executable proposal, rather than only a tactic name or prose summary. */
+  steps?: TaskSpec[];
+}
+export interface TacticalTarget {
+  kind: 'fixed' | 'contact' | 'search';
+  location: string;
+  unitId?: string;
+}
+export interface RecentAction {
+  key: string;
+  turn: number;
+  action: BattleAction;
+  outcome: 'succeeded' | 'running' | 'failed' | 'rejected';
+}
+export interface TacticalMemory {
+  /** Bounded, oldest-first list of locations actually visited by this side. */
+  visited: string[];
+  history: RecentAction[];
 }
 export interface DecisionRequest {
   id: string;
@@ -244,6 +265,7 @@ export interface DecisionRequest {
   observation: Observation;
   commander: Commander;
   candidates: Candidate[];
+  recentActions?: RecentAction[];
 }
 export interface DecisionAnswer {
   scores: Record<string, number>;
@@ -259,6 +281,14 @@ export interface ModelRecord {
   answer?: DecisionAnswer;
   error?: string;
 }
+export interface ModelSelection {
+  model: string;
+  confidence: number;
+  purpose: DecisionRequest['purpose'];
+  stateVersion: number;
+  localId: string;
+  selectedId: string;
+}
 export interface EvaluationContext {
   observation: Observation;
   commander: Commander;
@@ -268,6 +298,8 @@ export interface EvaluationContext {
   assignment?: RoleAssignment;
   assessment: Assessment;
   capabilities?: ResolvedCapabilities;
+  target?: TacticalTarget;
+  memory?: TacticalMemory;
 }
 export interface Evaluator {
   id: string;
@@ -403,6 +435,8 @@ export interface Checkpoint {
   narrativeKey?: string;
   narrativeContext?: NarrativeContext;
   activeOrders?: { key: string; unitId: string }[];
+  memory?: Record<Side, TacticalMemory>;
+  lastModelSelection?: ModelSelection;
 }
 export interface PlanStore {
   load(sessionId: string): Promise<Checkpoint | null>;
