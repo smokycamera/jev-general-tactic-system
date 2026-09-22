@@ -96,9 +96,14 @@ describe('静默指挥与恢复', () => {
   it('repairs only affected tasks and preserves completed progress history', async () => {
     const { runtime, adapter } = make();
     await runtime.step();
+    adapter.inject({ id: 'activate-red', kind: 'turn' }, (o) => {
+      o.activeSide = 'red';
+    });
+    await runtime.step();
     const before = runtime.state.plan;
     const red = before.tasks.find((t) => t.commanderId === 'red' && t.level === 'tactics')!;
     adapter.inject({ id: 'loss-test', kind: 'loss', unitIds: ['b1'] }, (o) => {
+      o.activeSide = 'blue';
       o.units.find((u) => u.id === 'b1')!.hp = 0;
     });
     await runtime.step();

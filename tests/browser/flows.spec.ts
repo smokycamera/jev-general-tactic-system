@@ -32,7 +32,7 @@ test('zero dialogs: plan, pause, single step, tune, revise and finish', async ({
   await expect(page.locator('#manual-action option')).not.toHaveCount(0);
   await page.getByRole('button', { name: '单步', exact: true }).click();
   await expect(page.locator('#actions')).toHaveText('1');
-  await expect(page.locator('#tasks .task')).toHaveCount(3);
+  await expect(page.locator('#tasks .task')).toHaveCount(2);
   await page.locator('#ability').selectOption('master');
   await page.locator('#style-flank').focus();
   await page.keyboard.press('End');

@@ -49,6 +49,8 @@ export interface BattleMap {
   locations: Location[];
 }
 export interface Observation {
+  /** Narrative hints only; never authoritative battle facts. */
+  narrativeContext?: NarrativeContext;
   sessionId: string;
   version: number;
   turn: number;
@@ -161,6 +163,7 @@ export interface Task {
   resourceCommitment: number;
   strengthAtCreation?: number;
   configurationKey?: string;
+  goalKey?: string;
   network?: TaskNetwork;
   parameters?: Record<string, Json>;
   modifiers?: string[];
@@ -329,9 +332,23 @@ export interface TextExtractor {
     messages: NarrativeMessage[],
     observation: Observation,
     signal: AbortSignal,
-  ): Promise<Goal[]>;
+  ): Promise<Goal[] | NarrativeContext>;
+}
+export type NarrativeTrigger = 'battle-start' | 'message-change' | 'decision' | 'manual';
+export interface NarrativeContextPolicy {
+  windowSize: number;
+  roles: string[];
+  trigger: NarrativeTrigger[];
+  mode: 'auto' | 'manual' | 'off';
+}
+export interface NarrativeContext {
+  goals: Goal[];
+  battleType?: string;
+  environment?: string[];
+  summary?: string;
 }
 export interface RuntimePolicy {
+  narrativeContext?: NarrativeContextPolicy;
   mode: 'silent-auto';
   requestTimeoutMs: number;
   decisionBudgetMs: number;
@@ -384,6 +401,7 @@ export interface Checkpoint {
   seenEvents: string[];
   paused: boolean;
   narrativeKey?: string;
+  narrativeContext?: NarrativeContext;
   activeOrders?: { key: string; unitId: string }[];
 }
 export interface PlanStore {
@@ -391,6 +409,7 @@ export interface PlanStore {
   save(checkpoint: Checkpoint, expectedRevision: number): Promise<void>;
 }
 export interface DecisionContext {
+  narrativeKey?: string;
   observation: Observation;
   commanders: Commander[];
   goals: Goal[];

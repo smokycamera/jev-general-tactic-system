@@ -155,6 +155,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "goalKey": {
+            "type": "string"
           }
         }
       }

@@ -5,6 +5,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   use: {
+    ...(process.env.JEV_BROWSER
+      ? { launchOptions: { executablePath: process.env.JEV_BROWSER } }
+      : {}),
     baseURL: 'http://127.0.0.1:4318',
     viewport: { width: 1440, height: 1000 },
     trace: 'retain-on-failure',

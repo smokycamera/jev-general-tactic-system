@@ -34,6 +34,8 @@ import type {
   Metrics,
   ModelRecord,
   NarrativeSource,
+  NarrativeContext,
+  NarrativeTrigger,
   Observation,
   PlanPatch,
   PlanStore,
@@ -67,7 +69,7 @@ import {
   taskFromMethod,
 } from './planning.js';
 import { defaultCoordinator, defaultEvaluator, defaultSelector, scoreAction } from './scoring.js';
-import { mergeGoals, narrativeWindow, validateGoals } from './goals.js';
+import { mergeGoals, narrativeWindow, validateGoals, validateNarrativeContext } from './goals.js';
 import {
   assert,
   clamp,
@@ -94,6 +96,7 @@ export const DEFAULT_POLICY: RuntimePolicy = {
   maxModelCallsPerDecision: 2,
   modelActionMode: 'local',
 };
+export const MAX_MODEL_CALLS_PER_DECISION = 10;
 const metrics = (): Metrics => ({
   decisions: 0,
   actions: 0,
@@ -174,6 +177,7 @@ export class CommandRuntime {
   private paused = false;
   private stats = metrics();
   private narrativeKey = '';
+  private narrativeContext: NarrativeContext | undefined;
   private failures = 0;
   private cooldownUntil = 0;
   private decisionEnd = 0;
@@ -209,6 +213,31 @@ export class CommandRuntime {
     this.styles = options.styles ?? defaultStyles();
     this.profiles = options.profiles ?? PROFILES;
     this.policy = { ...DEFAULT_POLICY, ...options.policy };
+    this.policy.maxModelCallsPerDecision = Math.min(
+      this.policy.maxModelCallsPerDecision,
+      MAX_MODEL_CALLS_PER_DECISION,
+    );
+    const narrative = this.policy.narrativeContext;
+    if (narrative) {
+      assert(
+        Number.isInteger(narrative.windowSize) &&
+          narrative.windowSize >= 0 &&
+          narrative.windowSize <= 100,
+        'invalid narrative window',
+      );
+      assert(
+        Array.isArray(narrative.roles) && narrative.roles.every((r) => typeof r === 'string'),
+        'invalid narrative roles',
+      );
+      assert(['auto', 'manual', 'off'].includes(narrative.mode), 'invalid narrative mode');
+      assert(
+        Array.isArray(narrative.trigger) &&
+          narrative.trigger.every((t) =>
+            ['battle-start', 'message-change', 'decision', 'manual'].includes(t),
+          ),
+        'invalid narrative trigger',
+      );
+    }
     this.commanders = clone(options.commanders);
     this.goals = clone(options.goals ?? []);
     validateCommanders(this.commanders, this.styles, this.profiles);
@@ -351,6 +380,7 @@ export class CommandRuntime {
         this.seenEvents = new Set(saved.seenEvents);
         this.paused = saved.paused;
         this.narrativeKey = saved.narrativeKey ?? '';
+        this.narrativeContext = saved.narrativeContext;
         this.activeOrders = saved.activeOrders ?? [];
         validateCommanders(this.commanders, this.styles, this.profiles);
       } else {
@@ -388,6 +418,7 @@ export class CommandRuntime {
       seenEvents: [...this.seenEvents],
       paused: this.paused,
       narrativeKey: this.narrativeKey,
+      ...(this.narrativeContext ? { narrativeContext: clone(this.narrativeContext) } : {}),
       activeOrders: clone(this.activeOrders),
     };
   }
@@ -423,6 +454,7 @@ export class CommandRuntime {
     let receipt = await this.options.adapter.receipt(envelope.key);
     if (!receipt) {
       const o = await this.options.adapter.observe();
+      if (this.narrativeContext) o.narrativeContext = clone(this.narrativeContext);
       if (o.version !== envelope.stateVersion) {
         this.pending = null;
         this.stats.stale++;
@@ -477,6 +509,7 @@ export class CommandRuntime {
     try {
       await this.reconcilePending();
       const o = await this.options.adapter.observe();
+      if (this.narrativeContext) o.narrativeContext = clone(this.narrativeContext);
       for (const progress of Object.values(this.progress)) syncExecutionOrders(progress, o);
       this.activeOrders = this.activeOrders.filter(
         (a) => !['succeeded', 'failed'].includes(o.orders?.[a.key] ?? 'running'),
@@ -510,7 +543,8 @@ export class CommandRuntime {
         trace: [],
       };
       this.setStatus('running', '自动指挥中');
-      if (this.policy.narrativeMode === 'auto') await this.extractNarrative(context);
+      if ((this.policy.narrativeContext?.mode ?? this.policy.narrativeMode) === 'auto')
+        await this.extractNarrative(context, this.narrativeKey ? 'message-change' : 'battle-start');
       await this.workflow.runDraft(context);
       const now = await this.options.adapter.observe();
       if (
@@ -526,6 +560,8 @@ export class CommandRuntime {
       this.plan = context.plan;
       this.progress = context.progress;
       this.goals = context.goals;
+      if (context.narrativeKey !== undefined) this.narrativeKey = context.narrativeKey;
+      this.narrativeContext = context.observation.narrativeContext;
       this.revisions.push(...this.changes);
       o.events.forEach((e) => this.seenEvents.add(e.id));
       this.lastCandidates = context.candidates;
@@ -752,38 +788,75 @@ export class CommandRuntime {
     });
   }
   async scanNarrative(): Promise<void> {
+    if (!this.initialized) await this.initialize();
     this.invalidate();
     return this.queue.run(async () => {
       const o = await this.options.adapter.observe();
-      this.narrativeKey = '';
-      const c = { observation: o, goals: clone(this.goals), signal: new AbortController().signal };
-      await this.extractNarrative(c);
+      const epoch = this.epoch;
+      this.aborter = new AbortController();
+      this.modelCalls = 0;
+      this.decisionEnd = this.now() + this.policy.decisionBudgetMs;
+      const c: Pick<DecisionContext, 'observation' | 'goals' | 'signal' | 'narrativeKey'> = {
+        observation: o,
+        goals: clone(this.goals),
+        signal: this.aborter.signal,
+      };
+      await this.extractNarrative(c, 'manual');
+      if (
+        c.signal.aborted ||
+        epoch !== this.epoch ||
+        (await this.options.adapter.observe()).version !== o.version
+      )
+        return;
       this.goals = c.goals;
+      if (c.narrativeKey !== undefined) this.narrativeKey = c.narrativeKey;
+      this.narrativeContext = c.observation.narrativeContext ?? this.narrativeContext;
       await this.persist();
     });
   }
   private async extractNarrative(
-    c: Pick<DecisionContext, 'observation' | 'goals' | 'signal'>,
+    c: Pick<DecisionContext, 'observation' | 'goals' | 'signal' | 'narrativeKey'>,
+    trigger: NarrativeTrigger,
   ): Promise<void> {
-    if (!this.options.narrative || !this.options.extractor || this.policy.narrativeMode === 'off')
+    const policy = this.policy.narrativeContext ?? {
+      windowSize: this.policy.narrativeWindow,
+      roles: this.policy.narrativeRoles,
+      mode: this.policy.narrativeMode,
+      trigger: ['battle-start', 'message-change', 'manual'],
+    };
+    if (
+      !this.options.narrative ||
+      !this.options.extractor ||
+      policy.mode === 'off' ||
+      (!policy.trigger.includes(trigger) &&
+        !(trigger !== 'manual' && policy.trigger.includes('decision')))
+    )
       return;
     try {
       const messages = narrativeWindow(
         await this.options.narrative.recent(),
-        this.policy.narrativeWindow,
-        this.policy.narrativeRoles,
+        policy.windowSize,
+        policy.roles,
       );
       const key = stable(messages);
-      if (!messages.length || key === this.narrativeKey) return;
-      const goals = await deadline(
+      if (
+        !messages.length ||
+        (trigger !== 'manual' && !policy.trigger.includes('decision') && key === this.narrativeKey)
+      )
+        return;
+      const remaining = this.decisionEnd - this.now() - 15;
+      if (remaining <= 0 || this.modelCalls >= this.policy.maxModelCallsPerDecision) return;
+      this.modelCalls++;
+      const extracted = await deadline(
         (s) => this.options.extractor!.extract(messages, c.observation, s),
-        this.policy.requestTimeoutMs,
+        Math.min(remaining, this.policy.requestTimeoutMs),
         c.signal,
       );
-      const normalized = goals.map((g) => ({ ...g, source: 'narrative' as const }));
-      validateGoals(normalized, c.observation);
-      c.goals = mergeGoals(c.goals, normalized);
-      if (!c.signal.aborted) this.narrativeKey = key;
+      const context = validateNarrativeContext(extracted, c.observation);
+      if (c.signal.aborted) return;
+      c.goals = mergeGoals(c.goals, context.goals);
+      c.observation.narrativeContext = context;
+      c.narrativeKey = key;
     } catch {
       /* Missing or invalid narrative never blocks a host decision. */
     }
@@ -916,6 +989,8 @@ export class CommandRuntime {
     const replacements: Task[] = [],
       scope: string[] = [];
     for (const commander of c.commanders) {
+      // Defer each side's first plan until that side can actually consult the provider.
+      if (commander.side !== c.observation.activeSide) continue;
       const context = this.context(c.observation, commander, c.goals);
       const old = c.plan.tasks.find((t) => t.level === 'tactics' && t.commanderId === commander.id);
       const progress = old ? c.progress[old.id] : undefined;
@@ -967,15 +1042,15 @@ export class CommandRuntime {
           (!e.unitIds?.length || e.unitIds.some((id) => commander.unitIds.includes(id))),
       );
       const configurationKey = stable({
+        unitIds: commander.unitIds,
         ability: commander.ability,
         style: commander.style,
         profile: context.profile,
         tactics: commander.tactics ?? {},
       });
       const capabilityKey = stable(context.capabilities);
-      const changedGoals =
-        stable(c.goals.filter((g) => g.side === commander.side)) !==
-        stable(c.plan.goals.filter((g) => g.side === commander.side));
+      const goalKey = stable(c.goals.filter((g) => g.side === commander.side));
+      const changedGoals = goalKey !== old?.goalKey;
       const migrate = !!old && !old.network && !!this.doctrines.get(old.doctrineId).decompose;
       if (
         old?.locked ||
@@ -1082,6 +1157,7 @@ export class CommandRuntime {
           .map((m) => m.id),
       );
       task.configurationKey = configurationKey;
+      task.goalKey = goalKey;
       task.capabilityKey = capabilityKey;
       task.failedDoctrines = [...new Set(failedDoctrines)];
       task.parameters = { ...method.parameters, ...commander.tactics?.parameters };
@@ -1220,7 +1296,8 @@ export class CommandRuntime {
           commanderId: commander.id,
           goal: context.goal,
         };
-        if (!task.network) {
+        if (!task.network || isAction(context.capabilities, 'support', action.kind)) {
+          // A legal support action (e.g. healing) may interrupt a task without completing its steps.
           scored.push(candidate);
           continue;
         }

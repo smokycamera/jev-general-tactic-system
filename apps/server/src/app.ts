@@ -28,6 +28,7 @@ import type {
 import { DemoAdapter, createObservation, defaultCommanders } from '@jev/demo';
 import type { Configuration } from './config.js';
 import { FilePlanStore } from './file-store.js';
+import { evaluateDecision, extractContext } from './bridge.js';
 export interface ServiceOptions {
   configuration?: Configuration;
   dataDirectory?: string;
@@ -140,6 +141,41 @@ export function createService(options: ServiceOptions = {}) {
         return;
       }
     }
+    if (
+      req.method === 'POST' &&
+      ['/api/bridge/evaluate', '/api/bridge/context'].includes(url.pathname)
+    ) {
+      // A cross-origin model gateway always requires a configured local service token.
+      if (origin && !sameOrigin && !options.token) {
+        send(res, 403, { error: 'cross-origin bridge requires service token' });
+        return;
+      }
+      const input = await body(req);
+      const aborter = new AbortController();
+      const cancel = () => {
+        if (!res.writableEnded) aborter.abort();
+      };
+      res.once('close', cancel);
+      try {
+        const result = url.pathname.endsWith('/evaluate')
+          ? await evaluateDecision(
+              input,
+              options.provider,
+              aborter.signal,
+              options.configuration?.policy?.requestTimeoutMs,
+            )
+          : await extractContext(
+              input,
+              options.extractor,
+              aborter.signal,
+              options.configuration?.policy?.requestTimeoutMs,
+            );
+        if (!res.destroyed) send(res, 200, result);
+      } finally {
+        res.off('close', cancel);
+      }
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/meta') {
       const runtime = new CommandRuntime({
         adapter: new DemoAdapter(),
@@ -150,6 +186,7 @@ export function createService(options: ServiceOptions = {}) {
         version: '0.2.0',
         mode: 'silent-auto',
         provider: options.provider?.id ?? 'local',
+        bridge: { protocol: 1, context: !!options.extractor },
         profiles: { ...PROFILES, ...options.configuration?.profiles },
         styles: runtime.styles.all().map(({ contribution, ...d }) => d),
         doctrines: runtime.doctrines

@@ -29,7 +29,10 @@ const service = createService({
   ...(provider ? { provider } : {}),
   ...(extractor ? { extractor } : {}),
   ...(process.env.JEV_SERVICE_TOKEN ? { token: process.env.JEV_SERVICE_TOKEN } : {}),
-  allowedOrigins: (process.env.JEV_ALLOWED_ORIGINS ?? '').split(',').filter(Boolean),
+  allowedOrigins: (process.env.JEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 });
 const port = Number(process.env.PORT ?? 4317);
 const recovery = await service.restoreSavedSessions();
