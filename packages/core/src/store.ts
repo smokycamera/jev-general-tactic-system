@@ -30,6 +30,20 @@ export function validateCheckpoint(value: unknown): asserts value is Checkpoint 
     'incomplete checkpoint',
   );
   const keys = new Set<string>();
+  if (v.lastModelSelection) {
+    const selection = v.lastModelSelection;
+    assert(
+      typeof selection.model === 'string' &&
+        Number.isFinite(selection.confidence) &&
+        selection.confidence >= 0 &&
+        selection.confidence <= 1 &&
+        ['family', 'doctrine', 'action'].includes(selection.purpose) &&
+        Number.isSafeInteger(selection.stateVersion) &&
+        typeof selection.localId === 'string' &&
+        typeof selection.selectedId === 'string',
+      'invalid model selection',
+    );
+  }
   if (v.memory !== undefined) {
     assert(
       v.memory && typeof v.memory === 'object' && !Array.isArray(v.memory),

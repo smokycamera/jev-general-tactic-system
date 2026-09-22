@@ -187,6 +187,7 @@ export class CommandRuntime {
   private narrativeKey = '';
   private narrativeContext: NarrativeContext | undefined;
   private memory: NonNullable<Checkpoint['memory']> = Object.create(null);
+  private lastModelSelection: Checkpoint['lastModelSelection'];
   private failures = 0;
   private cooldownUntil = 0;
   private decisionEnd = 0;
@@ -339,6 +340,7 @@ export class CommandRuntime {
       candidates: this.lastCandidates,
       assignments: this.lastAssignments,
       activeOrders: this.activeOrders,
+      lastModelSelection: this.lastModelSelection,
     });
   }
   private setStatus(state: Status['state'], detail: string) {
@@ -372,6 +374,7 @@ export class CommandRuntime {
         this.narrativeContext = saved.narrativeContext;
         this.activeOrders = saved.activeOrders ?? [];
         this.memory = saved.memory ?? Object.create(null);
+        this.lastModelSelection = saved.lastModelSelection;
         validateCommanders(this.commanders, this.styles, this.profiles);
       } else {
         this.plan = {
@@ -411,6 +414,7 @@ export class CommandRuntime {
       ...(this.narrativeContext ? { narrativeContext: clone(this.narrativeContext) } : {}),
       activeOrders: clone(this.activeOrders),
       memory: clone(this.memory),
+      ...(this.lastModelSelection ? { lastModelSelection: clone(this.lastModelSelection) } : {}),
     };
   }
   private async retry<T>(fn: () => Promise<T>): Promise<T> {
@@ -897,14 +901,22 @@ export class CommandRuntime {
       this.failures = 0;
       this.cooldownUntil = 0;
       this.statusValue.provider = answer.model;
-      // Low confidence retains the locally evaluated plan instead of asking the player.
-      if (answer.confidence < 0.55) return local;
-      return (this.options.selector ?? defaultSelector).select(
+      // Confidence continuously attenuates bounded model evidence; zero preserves local scores.
+      const selected = (this.options.selector ?? defaultSelector).select(
         candidates.map((c) => ({
           ...c,
           total: c.total + clamp(answer.scores[c.id] ?? 0.5) * 3 * answer.confidence,
         })),
       );
+      this.lastModelSelection = {
+        model: answer.model,
+        confidence: answer.confidence,
+        purpose: request.purpose,
+        stateVersion: request.stateVersion,
+        localId: local?.id ?? '',
+        selectedId: selected?.id ?? '',
+      };
+      return selected;
     } catch (error) {
       if (signal.aborted) throw error;
       this.failures++;

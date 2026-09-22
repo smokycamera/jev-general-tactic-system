@@ -54,6 +54,11 @@ describe('官方 SDK 与模型回放', () => {
       expect(Array.isArray(state.recentActions)).toBe(true);
       if (state.purpose === 'doctrine')
         expect(state.candidates.every((c: { steps: unknown[] }) => c.steps.length > 0)).toBe(true);
+      expect(
+        state.candidates.every(
+          (c: Record<string, unknown>) => !('total' in c) && !('utility' in c),
+        ),
+      ).toBe(true);
     }
     expect(runtime.state.records[0]?.answer?.model).toBe('mock-jev');
     expect(JSON.stringify(runtime.state)).not.toContain('test-only');

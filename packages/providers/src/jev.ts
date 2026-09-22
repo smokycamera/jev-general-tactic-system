@@ -18,7 +18,7 @@ export class JevProvider implements DecisionProvider {
     const questions: Questions = {};
     for (let i = 0; i < request.candidates.length; i++) {
       questions[`benefit_${i}`] = score(
-        `仅根据已知游戏状态，评价 candidates[${i}] 的 steps 中目的地、单位分配、依赖顺序及目标。对其 goal（没有时使用请求 goal）推进的帮助有多大？结合 recentActions 判断是否重复无效操作；不要把本地 total 当作结论。`,
+        `仅根据已知游戏状态，评价 candidates[${i}] 的 steps 或 action 中目的地、单位分配、依赖顺序及目标。对其 goal（没有时使用请求 goal）推进的帮助有多大？结合 recentActions 判断是否重复无效操作，不要推断未知敌情。`,
         ['无帮助或妨碍', '小幅帮助', '明显推进', '直接达成目标'],
       );
       questions[`risk_${i}`] = noul(
@@ -32,7 +32,18 @@ export class JevProvider implements DecisionProvider {
           observation: request.observation,
           commander: request.commander,
           goal: request.goal,
-          candidates: request.candidates,
+          // Keep independent model judgement free of local utility totals and ranking scores.
+          candidates: request.candidates.map(
+            ({ id, label, goal, features, summary, steps, action }) => ({
+              id,
+              label,
+              goal,
+              features,
+              summary,
+              steps,
+              action,
+            }),
+          ),
           recentActions: request.recentActions ?? [],
         }),
         questions,

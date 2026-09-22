@@ -297,3 +297,30 @@ it('search memory avoids immediately revisiting waypoints and uses no unseen uni
   expect(next.location).not.toBe(first.location);
   expect(next.location).not.toBe('p0');
 });
+
+it.each([0, 0.01, 0.4])(
+  'weights model evidence continuously at confidence %s',
+  async (confidence) => {
+    const host = new FogHost();
+    host.sight = 20;
+    const runtime = new CommandRuntime({
+      adapter: host,
+      store: new MemoryPlanStore(),
+      commanders: [commander],
+      provider: {
+        id: 'weighted',
+        evaluate: async (r) => ({
+          model: 'weighted',
+          confidence,
+          scores: Object.fromEntries(r.candidates.map((c, i) => [c.id, i === 1 ? 1 : 0])),
+        }),
+      },
+    });
+    await runtime.step();
+    const selection = runtime.state.lastModelSelection!;
+    expect(selection.confidence).toBe(confidence);
+    if (confidence < 0.1) expect(selection.selectedId).toBe(selection.localId);
+    else expect(selection.selectedId).not.toBe(selection.localId);
+    expect((await runtime.exportCheckpoint()).lastModelSelection).toEqual(selection);
+  },
+);

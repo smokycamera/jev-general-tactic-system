@@ -281,6 +281,14 @@ export interface ModelRecord {
   answer?: DecisionAnswer;
   error?: string;
 }
+export interface ModelSelection {
+  model: string;
+  confidence: number;
+  purpose: DecisionRequest['purpose'];
+  stateVersion: number;
+  localId: string;
+  selectedId: string;
+}
 export interface EvaluationContext {
   observation: Observation;
   commander: Commander;
@@ -428,6 +436,7 @@ export interface Checkpoint {
   narrativeContext?: NarrativeContext;
   activeOrders?: { key: string; unitId: string }[];
   memory?: Record<Side, TacticalMemory>;
+  lastModelSelection?: ModelSelection;
 }
 export interface PlanStore {
   load(sessionId: string): Promise<Checkpoint | null>;
