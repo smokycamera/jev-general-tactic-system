@@ -4,6 +4,7 @@ import { DoctrineRegistry, Registry } from './registry.js';
 import { supports, visibleEnemies } from './capabilities.js';
 import { capabilitiesFor, makeSpec, targetFor } from './operators.js';
 import { createDistanceLookup } from './util.js';
+import { resolveTarget } from './targeting.js';
 const geometry = new WeakMap<EvaluationContext, ReturnType<typeof createDistanceLookup>>();
 function tacticalDistance(c: EvaluationContext, from: string, to: string): number {
   let lookup = geometry.get(c);
@@ -81,6 +82,7 @@ function movement(id: string, units: string[], target: string | undefined, radiu
   return { ...makeSpec(id, 'move', units, [], target), data: { radius } };
 }
 type Pattern =
+  | 'search'
   | 'frontal'
   | 'breakthrough'
   | 'sector'
@@ -125,6 +127,15 @@ interface Definition {
   base?: number;
 }
 const DEFINITIONS: Definition[] = [
+  {
+    id: 'search-contact',
+    label: '搜索接触',
+    family: 'security',
+    pattern: 'search',
+    requirements: ['movement'],
+    features: { mobility: 1 },
+    base: 5,
+  },
   {
     id: 'frontal-attack',
     label: '正面攻击',
@@ -406,7 +417,11 @@ function build(d: Definition, c: EvaluationContext): TaskSpec[] {
         ? 'right'
         : 'left';
   const flank = flankPoint(c, direction),
-    combat = makeSpec('assault', 'combat', ids, [], target);
+    objective = c.target ?? resolveTarget(c),
+    combat = {
+      ...makeSpec('assault', 'combat', ids, [], target),
+      ...(objective?.kind === 'contact' ? { targetUnitId: objective.unitId } : {}),
+    };
   const hold = { ...makeSpec('hold', 'hold', ids, [], target), data: { radius: 1 } };
   const withdraw = {
     ...makeSpec('withdraw', 'withdraw', ids, [], c.goal.kind === 'withdraw' ? target : start),
@@ -419,6 +434,8 @@ function build(d: Definition, c: EvaluationContext): TaskSpec[] {
     optional: true,
   };
   switch (d.pattern) {
+    case 'search':
+      return [makeSpec('search', 'search', ids, [], target)];
     case 'frontal':
       return [combat];
     case 'breakthrough':
@@ -578,6 +595,9 @@ export function defaultTactics(): DoctrineRegistry {
       requirements: d.requirements ?? [],
       parameters: d.pattern === 'flank' || d.pattern === 'turn' ? { direction: 'auto' } : {},
       applicable(c) {
+        const target = c.target ?? resolveTarget(c);
+        if (d.pattern === 'search') return target?.kind === 'search';
+        if (target?.kind === 'search' && !c.commander.tactics?.doctrineId) return false;
         if (c.goal.kind === 'withdraw' && d.family !== 'withdraw' && d.id !== 'hold-position')
           return false;
         if (!supports(capabilitiesFor(c), d.requirements)) return false;

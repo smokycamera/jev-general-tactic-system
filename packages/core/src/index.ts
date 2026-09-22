@@ -15,3 +15,4 @@ export * from './execution.js';
 export * from './operators.js';
 export * from './tactics.js';
 export * from './narrative.js';
+export * from './targeting.js';

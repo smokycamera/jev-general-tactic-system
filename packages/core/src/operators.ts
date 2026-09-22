@@ -9,6 +9,7 @@ import type {
 import { Registry } from './registry.js';
 import { defaultCapabilityResolver, isAction, visibleEnemies } from './capabilities.js';
 import { distance, stable } from './util.js';
+import { resolveTarget } from './targeting.js';
 
 export function taskUnits(c: PlanningContext): Unit[] {
   return c.evaluation.observation.units.filter(
@@ -16,17 +17,7 @@ export function taskUnits(c: PlanningContext): Unit[] {
   );
 }
 export function targetFor(c: EvaluationContext): string | undefined {
-  if (c.goal.target) return c.goal.target;
-  const own = c.observation.units.find((u) => c.commander.unitIds.includes(u.id) && u.hp > 0);
-  return (
-    visibleEnemies(c.observation, c.commander.side).sort(
-      (a, b) =>
-        (own
-          ? distance(c.observation.map, own.location, a.location) -
-            distance(c.observation.map, own.location, b.location)
-          : 0) || a.id.localeCompare(b.id),
-    )[0]?.location ?? own?.location
-  );
+  return (c.target ?? resolveTarget(c))?.location;
 }
 export function actionIs(a: BattleAction, c: PlanningContext, kind: string): boolean {
   return isAction(c.capabilities, kind, a.kind);
@@ -38,7 +29,9 @@ function atDestination(c: PlanningContext): boolean {
   return (
     !!c.spec.target &&
     taskUnits(c).every(
-      (u) => distance(c.evaluation.observation.map, u.location, c.spec.target!) <= radius(c),
+      (u) =>
+        distance(c.evaluation.observation.map, u.location, c.spec.target!) <=
+        (c.spec.data?.engagementRange ? Math.max(1, u.range) : radius(c)),
     )
   );
 }
@@ -110,6 +103,14 @@ export function defaultOperators(): Registry<TaskOperator> {
   r.register({ ...move, id: 'rally' });
   r.register({
     ...move,
+    id: 'search',
+    observe: (c) =>
+      visibleEnemies(c.evaluation.observation, c.evaluation.commander.side).length
+        ? 'succeeded'
+        : move.observe(c),
+  });
+  r.register({
+    ...move,
     id: 'withdraw',
     score: (a, c) => {
       const value = movementScore(a, c);
@@ -126,20 +127,21 @@ export function defaultOperators(): Registry<TaskOperator> {
     observe: (c) => {
       if (!taskUnits(c).length) return 'failed';
       const { observation: o, goal } = c.evaluation;
-      if (
-        o.ended ||
-        (goal.kind === 'capture' &&
-          goal.target &&
-          taskUnits(c).some((u) => u.location === goal.target))
-      )
-        return 'succeeded';
+      if (o.ended) return 'succeeded';
       if (c.capabilities.fullyObservable && visibleEnemies(o, goal.side).length === 0)
         return 'succeeded';
       return 'running';
     },
     score: (a, c) => {
+      if (c.evaluation.goal.target) {
+        if (actionIs(a, c, 'attack')) return 8;
+        if (actionIs(a, c, 'defend') && atDestination(c)) return 5;
+        return movementScore(a, c);
+      }
       if (actionIs(a, c, 'attack')) return 8;
-      return movementScore(a, c);
+      const movement = movementScore(a, c);
+      // Once engagement is possible, moving closer is optional; do not drown out fire or support.
+      return movement === undefined ? undefined : movement > 0 ? 1 : movement;
     },
     signature,
   };
@@ -285,7 +287,17 @@ export function defaultHtnMethods(): Registry<HtnMethod> {
       task: 'combat',
       requirements: ['movement'],
       expand: (c) => [
-        { ...c.spec, id: 'approach', task: 'move', after: [], data: { ...c.spec.data, radius: 1 } },
+        {
+          ...c.spec,
+          id: 'approach',
+          task: 'move',
+          after: [],
+          data: {
+            ...c.spec.data,
+            radius: 1,
+            engagementRange: !!c.spec.targetUnitId,
+          },
+        },
         { ...c.spec, id: 'engage', task: 'engage', after: ['approach'] },
       ],
     })

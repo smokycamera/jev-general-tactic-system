@@ -1,6 +1,6 @@
 {
   "name": "@jev/providers",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@jev/core": "0.2.1",
+    "@jev/core": "0.2.2",
     "@typesafe-ai/sdk": "0.6.0"
   },
   "scripts": {
