@@ -1,10 +1,12 @@
-# JEV 通用指挥决策框架
+# JEV General Tactical Command Framework
 
-由jev制定整场战斗的计划，根据新情况调整。可接入各种不同游戏与战斗系统。可由jev控制指挥层级，选择指挥风格和能力，根据任务目标，总计划，战场态势自行安排战术。
+**English** | [简体中文](README.zh-CN.md)
 
-## 启动
+A JEV-driven tactical command framework for planning an entire battle and adapting the plan as conditions change. It is designed to integrate with different games and battle systems, while allowing JEV to control command hierarchy, commander style and capability, and tactical choices based on mission objectives, the overall plan, and the current battlefield situation.
 
-需要 Node.js 22.12 或更高版本。
+## Getting Started
+
+Requires Node.js 22.12 or later.
 
 ```bash
 npm ci
@@ -12,56 +14,59 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://127.0.0.1:4317`。在调试面板新建战斗后，可以自动运行，也可以暂停、单步、修改目标和风格。两种内置场景为方格战场和区域连接图。
+Open `http://127.0.0.1:4317` in your browser. After creating a battle in the debug panel, you can run it automatically, pause it, step through decisions, or change objectives and commander style. Two built-in demo environments are included: a grid battlefield and a region-connection graph.
 
-无界面演示：
+Headless demo:
 
 ```bash
 npm run demo
 ```
 
-宿主调用 `POST /api/sessions` 创建示例会话时默认立即自动运行。面板为了便于观察初始布置，主动使用 `auto:false` 创建演示会话；这是调试行为。
+When a host creates a sample session with `POST /api/sessions`, the session starts automatically by default. The debug panel deliberately creates demo sessions with `auto:false` so the initial deployment can be inspected before execution.
 
-## 已实现
-- 由jev控制的指挥层级、五类战术目录与具体战法选择。
-- 五档能力、十四维风格、32 个战术模板、10 种可组合辅助战法与开放参数。
-- 可注册的 HTN 方法、操作与执行器：任务依赖、前置条件、预测、回溯、集结、掩护和局部修复。
-- jev通过战前总计划，任务目标，当前形势等信息自动调整策略
-- 可选正文提取模型：可选择上下文一并发送给jev
-- 本机 HTTP 服务、中文 SVG 调试面板、配置 Schema、测试与 CI。
+## Implemented Features
 
-## 接入 Jev
+- JEV-controlled command hierarchy, five tactical categories, and concrete tactic selection.
+- Five capability levels, a 14-dimension commander style model, 32 tactic templates, 10 composable supporting tactics, and open parameters.
+- Extensible HTN methods, operators, and executors with task dependencies, preconditions, prediction, backtracking, regrouping, covering actions, and local repair.
+- Dynamic strategy adjustment based on the pre-battle plan, mission objectives, and current battlefield situation.
+- Optional narrative-extraction model, with configurable context forwarding to JEV.
+- Local HTTP service, SVG debug panel, configuration schema, tests, and CI.
 
-复制 `.env.example` 为 `.env`：
+## Connecting JEV
+
+Copy `.env.example` to `.env`:
 
 ```dotenv
-TYPESAFE_API_KEY=你的密钥
+TYPESAFE_API_KEY=your_api_key
 JEV_MODEL=jev-latest
 ```
 
-重启服务即可。默认单次请求 10 秒，决策预算 30 秒，每次调度最多 2 次模型请求，可配置到硬上限 10 次（正文提取共用预算）。双方分别在首次激活时建立计划。默认普通动作在本地执行，Jev 用于战法选择；战术树不会逐层调用模型。SDK 内部重试关闭，预算与降级由运行器统一管理。没有密钥时不会向 Jev 发出请求。
+Restart the service after configuring the environment. The default timeout is 10 seconds per request with a 30-second decision budget. Each scheduling cycle allows up to 2 model calls by default and can be configured up to a hard limit of 10; narrative extraction shares the same budget.
 
-正文模型单独配置 `TEXT_API_URL`（完整的兼容 chat-completions 地址）、`TEXT_API_KEY`、`TEXT_MODEL`。宿主通过 `NarrativeSource` 提供消息；演示服务也提供 `/narrative` 接口。该模型只提取任务，不执行动作。正文与战场可见信息会发送到配置的模型服务，请按实际使用选择提供方。
+Each side creates its plan when it is first activated. Ordinary actions run locally by default, while JEV is used for tactic selection. The tactical tree does not call the model once per level. SDK-level retries are disabled; budgeting and fallback behavior are handled centrally by the runtime. No JEV request is sent when no API key is configured.
 
-参考：[Jev JavaScript SDK](https://docs.typesafe.ai/sdk/javascript)、[问题的批量与分阶段组合](https://docs.typesafe.ai/primitives)
+The narrative model is configured separately through `TEXT_API_URL` (a complete chat-completions-compatible endpoint), `TEXT_API_KEY`, and `TEXT_MODEL`. Hosts provide messages through `NarrativeSource`; the demo service also exposes a `/narrative` endpoint. This model extracts tasks only and does not execute actions. Narrative text and battlefield-visible information are sent to the configured model provider, so choose the provider according to your deployment requirements.
 
-## 修改配置
+References: [Jev JavaScript SDK](https://docs.typesafe.ai/sdk/javascript) and [Batching and staged composition of questions](https://docs.typesafe.ai/primitives).
 
-编辑 `configs/core.defaults.json`，或用 `JEV_CONFIG_FILE` 指向另一份配置。支持能力配置、风格、目标、运行预算及流程阶段。无须修改核心调度器。
+## Configuration
+
+Edit `configs/core.defaults.json`, or set `JEV_CONFIG_FILE` to another configuration file. Capability, commander style, objectives, runtime budgets, and processing stages are configurable without modifying the core scheduler.
 
 ```bash
 npm run validate -- configs/core.defaults.json
 ```
 
-新增算法、地图、战法和评价步骤的方式见 [扩展教程](docs/extensions.md)。复杂算法注册 TypeScript 函数；配置文件不执行代码。
+See the [extension guide](docs/extensions.md) for adding algorithms, maps, tactics, and evaluation stages. Complex algorithms are registered as TypeScript functions; configuration files do not execute code.
 
-## 保存与恢复
+## Persistence and Recovery
 
-默认保存在项目 `.data/` 内，目录可用 `JEV_DATA_DIR` 更改。重启服务后，同一会话 ID 自动加载计划和示例战场快照。面板记住最近的会话 ID。
+Runtime data is stored in the project's `.data/` directory by default. Set `JEV_DATA_DIR` to use another location. After a restart, the same session ID automatically reloads its plan and the sample battlefield snapshot. The debug panel remembers the most recent session ID.
 
-示例适配器恢复整个演示战场；真实宿主适配器应读取真实战场，并以宿主事实为准。恢复历史计划只生成新修订，不回滚已经发生的行动。详见 [运行与恢复契约](docs/runtime.md)。
+The sample adapter restores the complete demo battlefield. Real host adapters should read the real battlefield state and treat host state as authoritative. Restoring a historical plan creates a new revision and does not roll back actions that have already occurred. See the [runtime and recovery contract](docs/runtime.md).
 
-## 开发与验证
+## Development and Validation
 
 ```bash
 npm run typecheck
@@ -71,16 +76,16 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-详细资料：
+Documentation:
 
-- [架构和目录](docs/architecture.md)
-- [0.2.1 核心边界审查](docs/core-boundaries.md)
-- [运行、保存与服务接口](docs/runtime.md)
-- [能力、风格和战法](docs/behavior.md)
-- [模块化任务规划与缺失机制适配](docs/modular-tactics.md)
-- [扩展教程](docs/extensions.md)
-- [酒馆接入契约](docs/tavern-contract.md)
-- [验收对应与限制](docs/acceptance.md)
-- [版本记录](CHANGELOG.md)
+- [Architecture and repository layout](docs/architecture.md)
+- [0.2.1 core boundary review](docs/core-boundaries.md)
+- [Runtime, persistence, and service API](docs/runtime.md)
+- [Capabilities, commander styles, and tactics](docs/behavior.md)
+- [Modular task planning and missing-mechanic adaptation](docs/modular-tactics.md)
+- [Extension guide](docs/extensions.md)
+- [Tavern integration contract](docs/tavern-contract.md)
+- [Acceptance mapping and limitations](docs/acceptance.md)
+- [Changelog](CHANGELOG.md)
 
-非商业使用、修改与分发免费，商业使用须事先获得作者书面授权并付费，见 [商业授权](COMMERCIAL-LICENSE.md)。第三方依赖保留各自许可证
+Non-commercial use, modification, and distribution are free. Commercial use requires prior written authorization from the author and a paid license; see [Commercial License](COMMERCIAL-LICENSE.md). Third-party dependencies remain under their respective licenses.
