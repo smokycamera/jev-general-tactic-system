@@ -1,6 +1,6 @@
 {
   "name": "@jev/demo",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@jev/core": "0.2.2"
+    "@jev/core": "0.2.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"

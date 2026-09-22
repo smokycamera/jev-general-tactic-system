@@ -26,7 +26,7 @@ const service = createService({
   configuration,
   dataDirectory: resolve(root, process.env.JEV_DATA_DIR ?? '.data'),
   uiDirectory: resolve(root, 'apps/debug/dist'),
-  ...(provider ? { provider } : {}),
+  ...(provider ? { provider, selector: provider } : {}),
   ...(extractor ? { extractor } : {}),
   ...(process.env.JEV_SERVICE_TOKEN ? { token: process.env.JEV_SERVICE_TOKEN } : {}),
   allowedOrigins: (process.env.JEV_ALLOWED_ORIGINS ?? '')

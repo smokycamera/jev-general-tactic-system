@@ -1,6 +1,6 @@
 # 酒馆可选 JEV 接入
 
-宿主为 `smokycamera/tavern-battle` 的 GitHub rc.5 基线。旧存档和新安装默认使用原有自动 AI；选择“JEV 指挥”后，使用本框架的计划、HTN 执行与可选模型评价。旧 V1 战斗继续使用原 AI。
+当前宿主为 `smokycamera/sillytavern-general-battle-system` 的 GitHub 0.2.0-rc.8，配套本服务 0.2.3。旧存档和新安装默认使用原有自动 AI；选择“JEV 指挥”后，使用本框架的计划、HTN 执行与可选模型评价。旧 V1 战斗继续使用原 AI。
 
 ## 运行
 
@@ -14,7 +14,7 @@
 
 ## 分工与保存
 
-- 酒馆内置带来源提交号和文件校验的核心副本，前端不远程加载代码。`POST /api/bridge/evaluate` 只调用模型评分，`POST /api/bridge/context` 只提取正文；服务器不保存或推进酒馆战斗。
+- 酒馆内置带来源提交号和文件校验的核心副本，前端不远程加载代码。`POST /api/bridge/evaluate` 只调用模型评分，`POST /api/bridge/context` 只提取正文，`POST /api/bridge/select-context` 批量回答宿主定义的配置选择；服务器不保存或推进酒馆战斗。
 - `TavernJevAdapter` 分别使用当前阵营的 `visibleCombatants`，不合并双方视野。中立单位不自动授予控制权。
 - 小战使用引擎原有的攻击、冲锋、技能、移动、固守和结束行动查询；会战军令通过 `orderPreview`、`issue` 和原有阶段结算。伤害、护甲、LOS、资源和掷骰不重写。
 - 规划在私有战斗副本中进行。整个激活／会战回合完成后，面板重检聊天代次、版本和取消状态，将战斗快照、计划和回执作为同一候选交给既有原生存储服务。
@@ -37,8 +37,14 @@
 
 以上配置放在 `RuntimePolicy.narrativeContext`。mode 支持 auto/manual/off；trigger 支持 battle-start/message-change/decision/manual。自动扫描在下次决策边界检查消息变化，手动扫描不推进战斗。旧 narrativeWindow/narrativeRoles/narrativeMode 保持兼容，新配置优先；窗口 0 表示不读取消息。
 
-正文提取需要配置 TEXT_API_URL/TEXT_API_KEY/TEXT_MODEL。酒馆默认关闭。输出只允许 goals、battleType、environment、summary；未知字段丢弃，不能修改单位事实。能力等级由用户选择，正文不会自行改变能力或风格。
+正文提取需要配置 TEXT_API_URL/TEXT_API_KEY/TEXT_MODEL。酒馆默认关闭。输出只允许 goals、battleType、environment、summary；未知字段丢弃，不能修改单位事实。该提取接口不负责能力或风格；0.2.3 的独立配置选择接口由酒馆用于敌方能力、风格与开战场景。
 
 ## 范围
 
-这是一版可运行的 V2/V4 接入，不是战斗平衡版本。未映射的特殊组合或无法推进的任务由原 AI 完成剩余行动。无原生消息接口的历史独立面板可使用 JEV 战场决策，但不读取正文。未配置文本模型时不执行正文语义提取。真实用户存档与长期战术表现仍需实际使用验证。
+这是一版可运行的 V2/V4 接入，不是战斗平衡版本。未映射的特殊组合或无法推进的任务由原 AI 完成剩余行动。历史独立面板使用适配器可提供的最近文本作为单条上下文，原生消息接口则保留消息角色、完成状态与窗口。未配置文本模型时不执行正文语义提取。真实用户存档与长期战术表现仍需实际使用验证。
+
+## 同批开战判定
+
+酒馆选择 JEV 模式且使用 V2/V4 规则时，可在开战前通过一个 JEV 批次选择敌方能力、14 维指挥风格、地形、昼夜、标准/室内地图、小战/会战及任务。默认读取最近 6 条完成的 assistant 消息；窗口为 0 时不读取。该功能只需 JEV，不依赖额外文本模型。
+
+场景在开战时冻结。敌方配置随战斗保存，重复消息窗口不请求；后续新正文明确更换指挥官或改变其状态时，适配器才允许更新能力/风格。手动设置优先，信息缺失与服务失败沿用默认配置。适配器检查小战/会战的编制和目标兼容性；等待中取消或上下文变化会丢弃未提交的准备结果。参见 [通用接口](context-selection.md)。

@@ -1,4 +1,6 @@
 import { assert, deadline, validateGoals, validateNarrativeContext } from '@jev/core';
+import { validateContextSelectionRequest, validateContextSelectionAnswer } from '@jev/core';
+import type { ContextSelector } from '@jev/core';
 import type {
   DecisionRequest,
   DecisionProvider,
@@ -137,4 +139,16 @@ export async function extractContext(
     ),
     observation,
   );
+}
+
+export async function selectContext(
+  input: unknown,
+  selector: ContextSelector | undefined,
+  signal: AbortSignal,
+) {
+  validateContextSelectionRequest(input);
+  assert(selector, 'context selection requires a configured JEV provider');
+  const result = await deadline((s) => selector.selectContext(input, s), 10000, signal);
+  validateContextSelectionAnswer(result, input);
+  return result;
 }

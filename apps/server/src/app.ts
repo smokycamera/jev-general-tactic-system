@@ -24,16 +24,18 @@ import type {
   Json,
   Checkpoint,
   PlanPatch,
+  ContextSelector,
 } from '@jev/core';
 import { DemoAdapter, createObservation, defaultCommanders } from '@jev/demo';
 import type { Configuration } from './config.js';
 import { FilePlanStore } from './file-store.js';
-import { evaluateDecision, extractContext } from './bridge.js';
+import { evaluateDecision, extractContext, selectContext } from './bridge.js';
 export interface ServiceOptions {
   configuration?: Configuration;
   dataDirectory?: string;
   store?: PlanStore;
   provider?: DecisionProvider;
+  selector?: ContextSelector;
   extractor?: TextExtractor;
   narrative?: NarrativeSource;
   token?: string;
@@ -143,7 +145,9 @@ export function createService(options: ServiceOptions = {}) {
     }
     if (
       req.method === 'POST' &&
-      ['/api/bridge/evaluate', '/api/bridge/context'].includes(url.pathname)
+      ['/api/bridge/evaluate', '/api/bridge/context', '/api/bridge/select-context'].includes(
+        url.pathname,
+      )
     ) {
       // A cross-origin model gateway always requires a configured local service token.
       if (origin && !sameOrigin && !options.token) {
@@ -157,19 +161,21 @@ export function createService(options: ServiceOptions = {}) {
       };
       res.once('close', cancel);
       try {
-        const result = url.pathname.endsWith('/evaluate')
-          ? await evaluateDecision(
-              input,
-              options.provider,
-              aborter.signal,
-              options.configuration?.policy?.requestTimeoutMs,
-            )
-          : await extractContext(
-              input,
-              options.extractor,
-              aborter.signal,
-              options.configuration?.policy?.requestTimeoutMs,
-            );
+        const result = url.pathname.endsWith('/select-context')
+          ? await selectContext(input, options.selector, aborter.signal)
+          : url.pathname.endsWith('/evaluate')
+            ? await evaluateDecision(
+                input,
+                options.provider,
+                aborter.signal,
+                options.configuration?.policy?.requestTimeoutMs,
+              )
+            : await extractContext(
+                input,
+                options.extractor,
+                aborter.signal,
+                options.configuration?.policy?.requestTimeoutMs,
+              );
         if (!res.destroyed) send(res, 200, result);
       } finally {
         res.off('close', cancel);
@@ -183,10 +189,10 @@ export function createService(options: ServiceOptions = {}) {
         commanders: defaultCommanders(),
       });
       send(res, 200, {
-        version: '0.2.2',
+        version: '0.2.3',
         mode: 'silent-auto',
         provider: options.provider?.id ?? 'local',
-        bridge: { protocol: 1, context: !!options.extractor },
+        bridge: { protocol: 1, context: !!options.extractor, selection: !!options.selector },
         profiles: { ...PROFILES, ...options.configuration?.profiles },
         styles: runtime.styles.all().map(({ contribution, ...d }) => d),
         doctrines: runtime.doctrines

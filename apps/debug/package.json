@@ -1,10 +1,10 @@
 {
   "name": "@jev/debug",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "dependencies": {
-    "@jev/core": "0.2.2"
+    "@jev/core": "0.2.3"
   },
   "scripts": {
     "build": "vite build",
